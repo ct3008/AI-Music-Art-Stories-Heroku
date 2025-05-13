@@ -1,3 +1,4 @@
+
 {% extends "layout.html" %}
 
 {% block content %}
@@ -8,20 +9,9 @@
         Click for Quick Start Guide
     </a>
 </div>
-<!-- <input type="file" id="audioFile" accept=".mp3, .wav"> -->
-<!-- <input type="number" id="threshold" placeholder="Threshold (0-100)" min="0" max="100" value="70"> -->
-
-<!-- <button onclick="processAudioNormal()">Process Audio OG</button> -->
-<!-- <button onclick="playAudio()">Play</button> -->
-<!-- <button onclick="clearBeats()" id="clearButton">Clear Beats</button> -->
-<!-- <button onclick="showSignificantPoints()" id="findIdealIntervals">Find Ideal Intervals</button> -->
-<!-- <button id="deleteButton">Delete Selected Label</button> -->
 
 </br>
-<!-- <input type="password" id="api_key" placeholder="Enter API Key"> -->
-<!-- <input type="text" id="api_key" placeholder="Enter API Key">
 
-<button onclick="sendApiKey()">Save</button> -->
 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 5px;">
     <!-- Existing items -->
     <div>
@@ -65,10 +55,6 @@
 </div>
 
 
-<!-- <div id="slider" style="display: none;">
-    <label for="zoomSlider">Zoom Level:</label>
-    <input type="range" id="zoomSlider" min="50" max="400" value="50">
-</div> -->
 <div id="zoomControl" style="display: none;">
     <label for="zoomLevel" style="display: inline-block;">Zoom Level:</label>
     <button id="zoomOut" style="display: inline-block;">-</button>
@@ -78,33 +64,10 @@
 
 
 
-<!-- <div id="beatContainer">
-    <div id="playhead" style="position: absolute; height: 100%; width: 8px; background-color: blue; left: 0px; z-index: 9999"></div>
-    <canvas id="waveformCanvas"></canvas>
-</div>
-
-<audio id="audioPlayer" controls hidden></audio> -->
-
 <div id="outputContainer"></div>
 <div id="timestampsContainer"></div>
 
-<!-- <div id="vibeBox" style="display: none;" >
-    <label for="vibeInput">Vibe: </label>
-    <input type="text" id="vibeInput" placeholder="Enter vibe (e.g., calm)">
-</div>
-<div id="colorBox" style="display: none;" >
-    <label for="colorInput">Color:</label>
-    <input type="text" id="colorInput" placeholder="Enter color (e.g., pale blue)">
-</div>
-<div id="imageryBox" style="display: none;">
-    <label for="imageryInput">Imagery:</label>
-    <input type="text" id="imageryInput"  placeholder="Enter imagery (e.g., calm flowing waves)">
-</div>
 
-<div id="textureBox" style="display: none;" >
-    <label for="textureInput">Texture:</label>
-    <input type="text" id="textureInput"placeholder="Enter texture of imagery (e.g., ink art on calligraphy paper)"> -->
-<!-- </div> -->
 <div id="details_wrapper" style="display: flex; flex-direction: column; width: 100%;">
     <button id="dropdownToggle" style="margin-bottom: 10px; display: none;">Hide Details ▲</button>
     <div style="display: flex;">
@@ -311,35 +274,10 @@
 </div>
 
 
-<!-- <button onclick="fillDefaults()">Fill with Defaults</button> -->
-
-
 <div class="form-container" id="trash"></div>
-<!-- <button id="delete-section">Delete Sections</button> -->
 
-<!-- Dropdown Button -->
-<!-- <button id="add-transition" onclick="makeTimestamp(true)">Add Transitions</button> -->
-<!-- <button id="finalizeTransitionButton">Done Transition</button> -->
-
-
-<!-- <button id="fillTransitionsDefaults" onclick="fillTransitionDefaults()">Fill Transitions Defaults</button> -->
-
-<!-- <button id="default-trans-btn" onclick="addDefaultTransitions()">Default Transition Suggestion</button> -->
-
-<!-- Dropdown Container -->
-<!-- <div id="transitionsContainer"></div> -->
 </br>
 
-<!-- <h4>Select your initial Image</h4> -->
-<!-- <form id="uploadImage">
-    <input type="file" id="imageInput" name="image" accept="image/*" required>
-    <button type="submit">Upload</button>
-</form> -->
-<!-- <button id="submitSelectedImage">Submit Selected Image</button> -->
-<!-- <button id="saveState" onclick="saveState()" style="display: none;" >Save State</button>
-
-<button id="checkQueue" onclick="checkQueue()" style="display: none;">Click to Check Queue Length</button>
-<button id="downloadPrompt" onclick="downloadPrompt()" style="display: none;">Download Prompt</button> -->
 <div id="toggle_helper">
     <button 
         id="toggleHelpers" 
@@ -360,9 +298,7 @@
 </div>
 
 <div id="processing" style="display: none;">
-    <!-- <div id="loadingIndicator_process">
-        <img width="auto" height="200" src="./static/loading.gif" alt="Loading..." />
-    </div> -->
+
     <div id="loadingIndicator_process">
         <div class="spinner"></div>
     </div>
@@ -370,7 +306,6 @@
 <!-- Add a condition later so that this only appears after everything is filled out -->
 <div id="processedDataContainer"></div>
 
-<!-- <script src="https://cdn.jsdelivr.net/npm/wavesurfer.js"></script> -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.4.0/wavesurfer.min.js"></script>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.4.0/plugin/wavesurfer.regions.min.js"></script>

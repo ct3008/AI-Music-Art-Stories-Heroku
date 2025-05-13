@@ -48,6 +48,7 @@ def generate_images(api, combinations):
                     "stability-ai/stable-diffusion-3.5-large",
                     input={"prompt": prompt}
                 )
+                print("generated image: ", output)
 
                 # Save each image with a dynamic name
                 for index, item in enumerate(output):

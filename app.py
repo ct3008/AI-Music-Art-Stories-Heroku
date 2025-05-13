@@ -25,19 +25,30 @@ from moviepy.editor import VideoFileClip, AudioFileClip
 warnings.simplefilter("ignore", UserWarning)  # For PySoundFile warning
 warnings.simplefilter("ignore", FutureWarning)  # For FutureWarning
 
-CLOUDINARY_URL = 'cloudinary://851777568929886:GJN-qDx1C7idDTO4SZ92FuD3mI0@hqxlqewng'
-cloudinary.config(
-    # cloud_name=os.environ['CLOUDINARY_URL'].split('@')[1],
-    # api_key=os.environ['CLOUDINARY_URL'].split(':')[1][2:],
-    # api_secret=os.environ['CLOUDINARY_URL'].split(':')[2].split('@')[0],
-    cloud_name=CLOUDINARY_URL.split('@')[1],
-    api_key=CLOUDINARY_URL.split(':')[1][2:],
-    api_secret=CLOUDINARY_URL.split(':')[2].split('@')[0],
-)
+# CLOUDINARY_URL = 'cloudinary://218577541897493:mtt6DbXehKwIm5dbOnBQbHU4XJ0@hnkke5f4a'
+# cloudinary.config(
+#     # cloud_name=os.environ['CLOUDINARY_URL'].split('@')[1],
+#     # api_key=os.environ['CLOUDINARY_URL'].split(':')[1][2:],
+#     # api_secret=os.environ['CLOUDINARY_URL'].split(':')[2].split('@')[0],
+#     cloud_name=CLOUDINARY_URL.split('@')[1],
+#     api_key=CLOUDINARY_URL.split(':')[1][2:],
+#     api_secret=CLOUDINARY_URL.split(':')[2].split('@')[0],
+# )
 
 load_dotenv()
 app = Flask(__name__, template_folder='./templates', static_folder='./static')
 CORS(app)
+
+# Let Cloudinary parse the full URL
+cloudinary.config(
+    cloudinary_url=os.getenv("CLOUDINARY_URL")
+)
+print("Cloud name:", cloudinary.config().cloud_name)
+print("API key:", cloudinary.config().api_key)
+print("API secret:", cloudinary.config().api_secret)
+print("Cloudinary URL:", os.getenv("CLOUDINARY_URL"))
+
+
 # api_key = os.getenv("OPENAI_DISCO_API_KEY")
 # client = OpenAI(api_key=api_key)
 

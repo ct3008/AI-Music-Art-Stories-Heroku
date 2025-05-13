@@ -11,8 +11,6 @@ import ssl
 # redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # url = urlparse(redis_url)
-# print("REDIS URL: ", url)
-# print("SEGMENT: ", url.hostname, url.port, url.password)
 
 # # Configure Redis connection with SSL/TLS support and certificate validation disabled
 # redis_conn = redis.StrictRedis(
@@ -26,8 +24,6 @@ from redis_config import get_redis_connection
 
 # Now you can use the same connection everywhere
 redis_conn = get_redis_connection()
-# print("REDIS CONN: ", redis_conn)
 
 # Create the RQ queue
 queue = Queue(connection=redis_conn)
-# print("QUEUE: ", queue)

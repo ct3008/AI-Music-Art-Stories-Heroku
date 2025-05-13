@@ -21,19 +21,6 @@ from helpers import (  # Adjust the import paths as needed
     create_deforum_prompt
 )
 
-
-
-
-# Redis connection
-# redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-# redis_conn = Redis.from_url(redis_url)
-
-# # Create an RQ queue
-# queue = Queue(connection=redis_conn)
-
-# def long_running_task(data):
-
-
     
 def process_audio(file_path):
     job = get_current_job()  # Get the current job
@@ -107,50 +94,6 @@ def process_audio(file_path):
     # Return the result (or save to DB, etc.)
     return response
 
-# def long_running_task(data):
-#     job = get_current_job()
-#     time.sleep(9)
-#     return data
-
-
-
-# def generate_image_task(data):
-#     try:
-#         prompt = data.get('prompt', '')
-#         api_key = data.get('api_key', '')
-#         api = replicate.Client(api_token=api_key)
-
-#         if not prompt:
-#             return {'error': 'No prompt provided'}  # Return as a dictionary, no jsonify
-
-#         # output = api.run(
-#         #     "lucataco/open-dalle-v1.1:1c7d4c8dec39c7306df7794b28419078cb9d18b9213ab1c21fdc46a1deca0144",
-#         #     input={
-#         #         "width": 768,
-#         #         "height": 768,
-#         #         "prompt": prompt,
-#         #         "scheduler": "KarrasDPM",
-#         #         "num_outputs": 1,
-#         #         "guidance_scale": 7.5,
-#         #         "apply_watermark": True,
-#         #         "negative_prompt": "worst quality, low quality",
-#         #         "prompt_strength": 0.8,
-#         #         "num_inference_steps": 40
-#         #     },
-#         #     timeout=600
-#         # )
-#         output = ["https://png.pngtree.com/png-clipart/20230512/original/pngtree-isolated-front-view-cat-on-white-background-png-image_9158426.png"]
-
-#         time.sleep(12)
-#         if output and isinstance(output, list):
-#             image_url = str(output[0])
-#             return {'status': "success", 'output': image_url}  # Return the result data instead of jsonify
-
-#         return {"status": "error", 'error': 'Unexpected output format'}  # Return error message as dict
-#     except Exception as e:
-#         # Log the actual error and return it as a dictionary
-#         print(f"Error: {str(e)}")
-#         return {"status": "error", 'error': str(e)}  # Return error data
 
 def generate_image_task(data):
     global init_image
@@ -211,7 +154,6 @@ def generate_image_task(data):
             }
         )
         # Simulate a long-running process, like calling an API
-        # output = ["https://replicate.delivery/xezq/e7L0heZDcQkglUAxvUGnkXPE5n0ar6eRPlOrdj57th9pFQrnA/out-0.webp"]
         # output = ["https://png.pngtree.com/png-clipart/20230512/original/pngtree-isolated-front-view-cat-on-white-background-png-image_9158426.png"]
         print("output done: ", output)
         # Simulating a timeout with sleep
@@ -225,7 +167,6 @@ def generate_image_task(data):
             cloudinary_image_url = cloudinary_response.get('secure_url')
 
             # Save the Cloudinary URL to Redis for later retrieval
-            # redis_conn.set(job.get_id(), cloudinary_image_url)
             timestamp = time.time()
             public_id = cloudinary_response.get('public_id')
             redis_conn.set(f'image:{timestamp}.{public_id}', cloudinary_image_url)
@@ -308,11 +249,7 @@ def long_running_task(data):
         # video_path = download_video_from_url(output)
         filename = data['filename']
         if not filename or not output:
-            return jsonify({"error": "Missing audio filename or video URL"}), 400
-        
-        # output_filename = "./downloaded_videos/output_combined.mp4"
-        # combine_audio_video(filename, output, output_filename)
-        
+            return jsonify({"error": "Missing audio filename or video URL"}), 40
         
         
         print("output: ", output)
