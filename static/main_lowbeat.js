@@ -1,7 +1,6 @@
+// VARIABLE INITIALIZATION
 const player = document.getElementById('audioPlayer');
-
 const textContainer = document.querySelector('.textContainer');
-
 
 var playheadInterval;
 let audioDuration;
@@ -19,11 +18,14 @@ let deleteModeT = false;
 let tablemade = false;
 let updatedGreenRegions = [];
 let updatedOrangeRegions = [];
+let existingTransitions = []; // Track all transitions globally
 let existingTransitionValues = {};
 let existingValues = {};
 let added = true;
 let selectedFile = null;
 let audioData = null;
+let playPauseClickHandler;
+
 
 const vibes = ['calm', 'epic', 'aggressive', 'chill', 'dark', 'energetic', 'ethereal', 'happy', 'romantic', 'sad', 'scary', 'sexy', 'uplifting'];
 const textures = ['painting', 'calligraphy brush ink stroke', 'pastel watercolor on canvas', 'charcoal drawing', 'pencil drawing', 'impasto palette knife painting', 'mosaic', 'jagged/irregular', 'rubbed graphite on paper', 'digital glitch', 'splattered paint', 'graffiti', 'ink blots'];
@@ -94,6 +96,9 @@ const images = {
     ]
 };
 
+//#------------------- Basic set-up -------------------
+
+// Fall back to store API Key in backend
 window.onload = function() {
     const storedKey = localStorage.getItem('api_key');
     if (storedKey) {
@@ -101,6 +106,7 @@ window.onload = function() {
     }
 };
 
+// Storing API Key 
 async function sendApiKey() {
     const apiKey = document.getElementById('api_key').value;
     if (!apiKey) {
@@ -127,118 +133,300 @@ async function sendApiKey() {
     }
 }
 
-function movePlayheadOG() {
-    const containerWidth = beatContainer.offsetWidth; // Width of the container
-    const duration = audioPlayer.duration; // Duration of the audio in seconds
-
-    // Calculate pixels per second
-    const pixelsPerSecond = containerWidth / duration;
-
-    clearInterval(playheadInterval);
-
-    playheadInterval = setInterval(function () {
-        if (!audioPlayer.paused && !audioPlayer.ended) {
-            // Calculate new position based on current time and pixels per second
-            let newPosition = audioPlayer.currentTime * pixelsPerSecond;
-            playhead.style.left = `${newPosition}px`;
+// To preload certain interactions and features
+document.addEventListener("DOMContentLoaded", function () {
+    // Event listener to suppress horizontal scrolling unless inside a scrollable container
+    document.addEventListener('wheel', function (event) {
+        // Check if the event occurred inside a scrollable container
+        const isScrollable = isInsideScrollableContainer(event);
+    
+        // Suppress horizontal navigation unless inside a scrollable container
+        if (!isScrollable && (event.deltaX < 0 || event.deltaX > 0)) {
+            // console.log("Preventing horizontal navigation");
+            event.preventDefault();
         }
-    }, 100); // Update every 100 milliseconds
-}
-
-function makeLineDraggable(beatLine, beatContainer, audioPlayer) {
-    let isDragging = false;
-
-    beatLine.addEventListener('mousedown', function (event) {
-        isDragging = true;
-        event.preventDefault();
-    });
-
-    document.addEventListener('mousemove', function (event) {
-        if (isDragging) {
-            const rect = beatContainer.getBoundingClientRect();
-            let offsetX = event.clientX - rect.left;
-
-            // Ensure the line stays within the container bounds
-            if (offsetX < 0) offsetX = 0;
-            if (offsetX > beatContainer.offsetWidth) offsetX = beatContainer.offsetWidth;
-
-            // Move the line to the new position
-            beatLine.style.left = `${offsetX}px`;
-
-            // Update the associated time interval
-            const percentage = offsetX / beatContainer.offsetWidth;
-            const newTime = percentage * audioPlayer.duration;
-            // Update any displayed time intervals
-            updateTimeDisplay(beatLine, newTime);
+    }, { passive: false });
+    
+    // Helper function to check if the event occurred inside a scrollable container
+    // Don't allow you to accidentally exit page if scroll too hard
+    function isInsideScrollableContainer(event) {
+        let current = event.target;
+    
+        // Traverse up the DOM tree to check for scrollable containers
+        while (current) {
+            if (current.scrollWidth > current.clientWidth) {
+                // Ensure the container is still scrollable
+                const hasScrollRemaining =
+                    (current.scrollLeft > 0 && event.deltaX < 0) || // Scrolling left
+                    (current.scrollLeft < current.scrollWidth - current.clientWidth && event.deltaX > 0); // Scrolling right
+    
+                if (hasScrollRemaining) {
+                    // console.log("Scrollable container with space to scroll:", current);
+                    return true; // Found a valid scrollable container
+                }
+            }
+            current = current.parentElement;
         }
-    });
-
-    document.addEventListener('mouseup', function () {
-        isDragging = false;
-    });
-}
-
-function updateTimeDisplay(beatLine, newTime) {
-    const timeLabel = document.getElementById(`${beatLine.id}_time`);
-    if (timeLabel) {
-        timeLabel.textContent = newTime.toFixed(2) + " seconds";
+    
+        // console.log("No scrollable container found");
+        return false; // No valid scrollable container
     }
-}
+    
+    // Intercept browser back button and ask for confirmation bef
+    window.addEventListener('popstate', function (event) {
+        // console.log("Pop state: " + event)
+        // Intercept the browser back action
+        const confirmation = confirm('Are you sure you want to leave this page?');
+    
+        if (!confirmation) {
+            // Prevent navigation to the previous page if the user cancels
+            history.pushState(null, '', window.location.href);
+        }
+    });
+    
+     // Warn the user when they attempt to leave the page (beforeunload event)
+    window.addEventListener('beforeunload', function (event) {
+        // console.log("unload: " + event)
+        const confirmationMessage = 'Are you sure you want to leave?';
+    
+        // Standard message for the browser confirmation dialog (varies by browser)
+        event.returnValue = confirmationMessage;
+    
+        // For modern browsers that support custom messages
+        return confirmationMessage;
+    });
+    
 
-function clearPreviousTimestamps() {
-    const previousTimestamps = document.querySelectorAll('.beat-timestamp');
-    previousTimestamps.forEach(timestamp => timestamp.remove());
-}
+
+    // API Key validation to enable or disable file input based on API key presence
+    function validateApiKey() {
+        // Get the value of the API key field
+        const apiKey = document.getElementById("api_key").value;
+        const fileInput = document.getElementById("audioFile");
+        
+        if (apiKey === '') {
+            alert("Please enter an API key");
+            fileInput.disabled = true;  // Disable file input
+        } else {
+            fileInput.disabled = false;  // Enable file input
+        }
+    }
+    // Call this function when the API key input changes
+    document.getElementById("api_key").addEventListener("input", validateApiKey);
 
 
-function playAudio() {
-    var file = document.getElementById("audioFile").files[0];
-    if (file) {
-        var audioPlayer = document.getElementById("audioPlayer");
-        audioPlayer.src = URL.createObjectURL(file);
-        audioPlayer.style.display = "block";
-        audioPlayer.addEventListener('loadedmetadata', function () {
-            audioDuration = audioPlayer.duration; // Set the duration once metadata is loaded
-            // console.log("Audio Duration: " + audioDuration + " seconds"); // Optional: Log duration to console
-            movePlayheadOG(audioPlayer);
+
+    // File selection and audio processing logic
+    const audioFileInput = document.getElementById('audioFile');
+    let fileSelected = false;
+    selectedFile = null;
+    // Listen for the file selection event
+    audioFileInput.addEventListener('change', function (event) {
+        
+        console.log("Change audio file")
+        selectedFile = document.getElementById('audioFile').files[0];
+        console.log(selectedFile)
+        fileSelected = !!selectedFile; // Set to true if a file is selected
+        setTimeout(() => {
+            console.log(fileSelected, selectedFile)
+            if (fileSelected && selectedFile) {
+                clearExistingData();
+
+                processAudio();
+                const addButton = document.getElementById("addNewInterval");
+                const deleteButton = document.getElementById("deleteButton");
+                const nextButton = document.getElementById("next-transition");
+
+                addButton.style.display = "block";
+                deleteButton.style.display = "block";
+                nextButton.style.display = "block";
+
+
+                fileSelected = false; // Reset the flag for future selections
+            }
+        }, 0);
+    });
+
+
+
+    // Toggle motion button functionality to refresh the table
+    // when press bw 2D and 3D motion, ensure to change the values ==> refresh table
+    document.getElementById("toggleMotionButton").addEventListener("click", function () {
+        refreshTable();
+    });
+
+
+
+    const dropdownToggle = document.getElementById('dropdownToggle');
+    const detailsBox = document.getElementById('detailsBox');
+    const imageExamples = document.getElementById('image_examples');
+    const brainstormingBox = document.getElementById("brainstormingBox");
+
+    dropdownToggle.addEventListener('click', () => {
+        if (detailsBox.style.display === 'none' || detailsBox.style.display === '') {
+            detailsBox.style.display = 'block';
+            imageExamples.style.display = 'block';
+            brainstormingBox.style.display = 'block';
+            dropdownToggle.innerHTML = 'Hide Details ▲';
+        } else {
+            detailsBox.style.display = 'none';
+            imageExamples.style.display = 'none';
+            brainstormingBox.style.display = 'none';
+            dropdownToggle.innerHTML = 'Show Details ▼';
+        }
+    });
+
+    // Dropdown toggle for showing and hiding details section
+    const handleDropdown = (inputId, dropdownId, dropdownButtonId) => {
+
+        const inputElement = document.getElementById(inputId);
+        const dropdown = document.getElementById(dropdownId);
+        const options = dropdown.querySelectorAll('li');
+        const dropdownButton = document.getElementById(dropdownButtonId);
+
+        // Function to show dropdown and highlight best match
+        const showDropdown = () => {
+            dropdown.style.display = 'block';
+            const inputValue = inputElement.value.toLowerCase();
+
+            let bestMatch = null;
+            let bestMatchIndex = -1;
+
+            options.forEach((option, index) => {
+                const optionValue = option.textContent.toLowerCase();
+                
+                if (optionValue.includes(inputValue)) {
+                    if (bestMatchIndex === -1 || optionValue.indexOf(inputValue) < bestMatch.indexOf(inputValue)) {
+                        bestMatch = optionValue;
+                        bestMatchIndex = index;
+                    }
+                }
+                
+            });
+
+            options.forEach((option, index) => {
+                if (option.textContent.toLowerCase() === bestMatch) {
+                    option.style.backgroundColor = '#e0e0e0'; // Highlight best match
+                    dropdown.scrollTop = options[bestMatchIndex].offsetTop - dropdown.offsetTop;
+                } else {
+                    option.style.backgroundColor = ''; // Remove highlight from others
+                }
+            });
+            
+            
+        };
+
+        // Show dropdown on input click
+        inputElement.addEventListener('focus', () => {
+            showDropdown();
         });
-        audioPlayer.play();
-    } else {
-        alert("Please upload an MP3 file first.");
-    }
-}
 
+        // Show dropdown on typing and update matching
+        inputElement.addEventListener('input', () => {
+            showDropdown();
+        });
 
-function movePlayhead(audioPlayer, endTime) {
-    const playhead = document.getElementById('playhead');
-    if (!playhead) {
-        const newPlayhead = document.createElement('div');
-        newPlayhead.id = 'playhead';
-        newPlayhead.style.position = 'absolute';
-        newPlayhead.style.width = '10px';
-        newPlayhead.style.height = '10px';
-        newPlayhead.style.backgroundColor = 'red';
-        document.body.appendChild(newPlayhead);
-    }
+        // Show dropdown when clicking the button
+        dropdownButton.addEventListener('click', () => {
+            if (dropdown.style.display === 'none') {
+                showDropdown();
+            } else {
+                dropdown.style.display = 'none';
+            }
+        });
 
-    const updatePlayhead = () => {
-        const progress = audioPlayer.currentTime / audioPlayer.duration;
-        playhead.style.left = `${progress * 100}%`;
-        if (audioPlayer.currentTime >= endTime || audioPlayer.paused) {
-            clearInterval(interval);
-        }
+        // Select option from dropdown
+        dropdown.addEventListener('click', (e) => {
+            if (e.target.tagName === 'LI') {
+                inputElement.value = e.target.textContent;
+                dropdown.style.display = 'none'; // Hide dropdown after selection
+                if (inputId === "colorInput"){
+                    updateColorPickerFromInput();
+                }
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!inputElement.contains(e.target) && !dropdown.contains(e.target) && !dropdownButton.contains(e.target)) {
+                dropdown.style.display = 'none'; // Hide dropdown when clicking outside
+            }
+        });
     };
 
-    const interval = setInterval(updatePlayhead, 100);
-    audioPlayer.addEventListener('pause', () => clearInterval(interval));
-}
+    // Initialize dropdown for both vibeInput and imageryInput
+    handleDropdown('vibeInput', 'vibeDropdown', 'dropdownButton');
+    handleDropdown('imageryInput', 'imageryDropdown', 'imageryDropdownButton');
+    handleDropdown('textureInput', 'textureDropdown', 'textureDropdownButton');
+    handleDropdown('colorInput', 'colorDropdown', 'colorDropdownButton');
 
+
+    // Handle image selection for imagery and texture
+    const baseURL = "https://raw.githubusercontent.com/Jiaxin-yyjx/SongAnalysis/refs/heads/main/images/";
+    const selectElement = document.getElementById("imagery-select");
+    const imageContainer = document.getElementById("image-container");
+    const imageryInput = document.getElementById("imageryInput"); // Imagery input box
+    const textureInput = document.getElementById("textureInput"); // Texture input box
+
+    selectElement.addEventListener("change", (event) => {
+        const imagery = event.target.value;
+
+        // Clear the existing images
+        imageContainer.innerHTML = "";
+
+        // Add new images for the selected imagery
+        if (images[imagery]) {
+            images[imagery].forEach((filename) => {
+                // Create a container for the image and its texture name
+                const imgWrapper = document.createElement("div");
+                imgWrapper.classList.add("img-wrapper");
+
+                // Create the image element
+                const img = document.createElement("img");
+                img.src = `${baseURL}${filename}`; // Construct the GitHub URL
+                img.alt = filename.replace(/_/g, "-").replace(".webp", ""); // Alt text as a URL-friendly name
+                img.draggable = true; // Make the image draggable
+
+                // Extract the texture name dynamically
+                const textureName = filename
+                    .replace(imagery.replace(/ /g, "_"), "") // Remove the imagery key part
+                    .replace(/^_/, "") // Remove leading underscore
+                    .replace(/_output_\d+\.webp$/, "") // Remove output and index
+                    .replace(/_/g, " "); // Replace underscores with spaces
+
+                // Create a caption for the texture name
+                const caption = document.createElement("p");
+                caption.textContent = textureName.trim(); // Set the texture name as the caption
+                caption.classList.add("texture-caption");
+
+                // Add click event to update the input fields
+                img.addEventListener("click", () => {
+                    // console.log(imagery, textureName)
+                    imageryInput.value = imagery.replace('_', ' '); // Set the imagery value
+                    textureInput.value = textureName.trim(); // Set the texture value
+                });
+
+                // Append the image and caption to the wrapper
+                imgWrapper.appendChild(img);
+                imgWrapper.appendChild(caption);
+
+                // Append the wrapper to the container
+                imageContainer.appendChild(imgWrapper);
+            });
+        }
+    });
+});
+
+
+//#------------------- Audio -------------------
+
+// For parts in table (form and transition) with a play button to play
+// waveform just between two specific time ranges
 function playTimeRange(startTime, endTime) {
     const playPauseButton = document.getElementById('playPauseButton');
     if (waveform && waveform.isReady) {
         playPauseButton.innerHTML = '⏸';
         // Pause global playback before starting range playback
-
 
         // Monitor the playback progress
         const interval = setInterval(() => {
@@ -261,145 +449,355 @@ function playTimeRange(startTime, endTime) {
     }
 }
 
+// Logic when upload audio clips
+function processAudio() {
+    
+    tablemade = false;
+    const fileInput = document.getElementById('audioFile');
+    const play_button = document.getElementById("playPauseButton")
+    const play_start_button = document.getElementById("playStartButton");
+    const play_buttons_box = document.getElementById("playbuttons");
+    // const slider = document.getElementById("slider")
+    const loadingIndicator = document.getElementById("loadingIndicator");
+    const loadState = document.getElementById("loadState");
+    // const saveState = document.getElementById("saveState");
+    audioZoom(); // Function to set all the zooom stuff up
 
-// Function to update the color picker based on hex code in the color input
-function updateColorPickerFromInput() {
-    const hexColorPattern = /#([0-9A-Fa-f]{6})\b/;
 
-    const colorInput = document.getElementById("colorInput");
-    const colorPicker = document.getElementById("colorPicker");
-    const colorPickerButton = document.getElementById("colorPickerButton");
-    const inputText = colorInput.value;
-    const hexMatch = inputText.match(hexColorPattern);
 
-    if (hexMatch) {
-        // If a hex color code is found, update the color picker and button background
-        colorPicker.value = hexMatch[0];
-        colorPickerButton.style.backgroundColor = hexMatch[0];
+    play_button.style.display = "block";
+    play_start_button.style.display = "block";
+    play_buttons_box.style.display = "flex"
+    loadingIndicator.style.display = "block";
+    loadState.style.display = "block";
+    // saveState.style.display = "block";
+
+    // const clearButton = document.getElementById('clearButton');
+
+    // clearButton.click(); // Ensure clear button is clicked before processing
+    if (fileInput.files.length === 0) {
+        alert("Please select an audio file first.");
+        return;
+    }
+
+    // const formData = new FormData();
+    // formData.append('audioFile', fileInput.files[0]);
+    audioData = new FormData();
+    audioData.append('audioFile', fileInput.files[0]);
+    
+
+    fetch('/upload_audio', {
+        method: 'POST',
+        body: audioData
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const audioUrl = URL.createObjectURL(fileInput.files[0]);
+
+                if (waveform) {
+                    // If there's already a waveform
+                    if (waveform.regions) {
+                        waveform.clearRegions();
+                    }
+
+                    waveform.unAll();
+
+                    waveform.load(audioUrl);
+
+                } else {
+                    // Create a new WaveSurfer instance
+                    waveform = WaveSurfer.create({
+                        container: '#waveform',
+                        height: 256,
+                        waveColor: 'rgb(200, 0, 200)',
+                        progressColor: 'rgb(100, 0, 100)',
+                        plugins: [
+                            WaveSurfer.regions.create() // Initialize the Regions plugin
+                        ],
+                    });
+
+                    // Load the audio URL
+                    waveform.load(audioUrl);
+
+
+                    // console.log("New WaveSurfer instance created and audio loaded: ", audioUrl);
+                }
+
+                play_start_button.addEventListener('click', () => {
+                    if (waveform) {
+                        // console.log("clicked")
+                        waveform.play(0); // Start playback from the beginning (time = 0)
+                        playPauseButton.innerHTML = '⏸';
+                    }
+                });
+
+                waveform.on('error', (error) => {
+                    console.error('WaveSurfer Error: ', error);
+                });
+
+                let beats_time = [];
+
+                data.top_onset_times.forEach(beat => {
+                    beats_time.push(beat.time);
+                });
+
+                // Draw the fetched lowEnergyBeats
+                let lowEnergyBeatTimes = [];
+                data.low_energy_timestamps.forEach(beats => {
+                    lowEnergyBeatTimes.push(beats.time);
+                });
+
+                // Set up regions and markers after the waveform is ready
+                waveform.on('ready', () => {
+                    // console.log("Waveform is ready.");
+                    setupRegions(waveform, lowEnergyBeatTimes, 'Low Energy Beat', 'red', 0.01, false);
+                    setupRegions(waveform, beats_time, 'Beats', 'blue', 0.01, false);
+                    // Event listener for clicking a region
+                    waveform.on('region-click', (region) => {
+                        const currentTime = waveform.getCurrentTime();
+                        if (currentTime >= region.start && currentTime <= region.end) {
+                            waveform.play(region.start); // Play from the marker start
+                        }
+                        // console.log("TIME: ", currentTime);
+                    });
+
+
+
+                    waveform.on('region-update-end', (region) => {
+                        // console.log("Region dragging ended");
+
+                        // Get all regions from the waveform
+                        const allRegions = Object.values(waveform.regions.list); // Fetch all regions as an array
+
+                        // Filter for regions that are green
+                        const greenRegions = allRegions.filter(r => r.color === 'green');
+
+                        // Update newsigPoints based on green regions' start times
+                        newsigPoints = greenRegions.map(r => r.start);
+
+                        // console.log("Updated newsigPoints:", newsigPoints);
+                    });
+
+                });
+
+                // Play/Pause control
+                const playPauseButton = document.getElementById('playPauseButton');
+                playpauseControl(playPauseButton);
+
+                document.getElementById('outputContainer').textContent = JSON.stringify(data.output, null, 2);
+                lowEnergyBeats = data.low_energy_timestamps; // Update the global variable
+                audioDuration = data.duration;
+
+                // console.log("sig pts: ", newsigPoints);
+                significantPoints = findSignificantPoints(data.aligned_onsets, lowEnergyBeats, audioDuration);
+                significantPoints.sort((a, b) => a - b);
+                if (newsigPoints.length == 0) {
+                    //no sig pts have been identified yet
+                    newsigPoints = [...significantPoints]
+                    newsigPoints.sort((a, b) => a - b);
+                    // console.log("SIG POINTS: " + significantPoints);
+
+                }
+                else if (significantPoints[0] != newsigPoints[0] || significantPoints.length != newsigPoints.length) {
+                    //new song loaded
+                    newsigPoints = [...significantPoints]
+                    newsigPoints.sort((a, b) => a - b);
+
+                } else {
+                    //same song is loaded
+                    newsigPoints.sort((a, b) => a - b);
+
+                }
+                setupRegions(waveform, newsigPoints, 'Significant Points', 'green', 0.25, true);
+                waveform.on('region-drag', (region) => {
+                    console.log('Region dragged to', region.start); // Log new start time
+                });
+
+
+
+            } else {
+                document.getElementById('outputContainer').textContent = 'Error: ' + data.error;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('outputContainer').textContent = 'Failed to fetch data.';
+        })
+        .finally(() => {
+            // Hide loading indicator after completion
+            loadingIndicator.style.display = "none";
+        });
+}
+
+// MAIN FUNCTION used to create the default interval locations
+// uses clustering logic to find points of significant musical change
+// very simple, can be optimized
+function findSignificantPoints(beats, lowEnergyBeats, songDuration) {
+    // console.log("find sig");
+
+    // Step 1: Combine beats and lowEnergyBeats with metadata
+    const combined = [];
+
+    beats.forEach(point => combined.push({ time: point.time, source: 'beat', strength: point.strength }));
+    lowEnergyBeats.forEach(point => combined.push({ time: point.time, source: 'lowEnergy', strength: point.strength }));
+
+    // Step 2: Sort combined array by time
+    combined.sort((a, b) => a.time - b.time);
+
+    // Exclude points too close to the beginning or end
+    const excludedPoints = combined.filter(point =>
+        point.time > 3 && point.time < (songDuration - 3)
+    );
+
+    // Step 3: Selecting points
+    const finalPoints = [];
+    const desiredCount = Math.ceil(songDuration / 4);
+    const minGap = 3.7; // Minimum gap between selected points
+
+    let lastSelectedTime = -minGap; // Initialize to a negative value
+
+    excludedPoints.forEach(point => {
+        if (point.time - lastSelectedTime >= minGap) {
+            // Check for strong nearby points (within 1.5 seconds)
+            const nearbyPoints = excludedPoints.filter(p =>
+                Math.abs(p.time - point.time) <= 1.5
+            );
+
+            if (nearbyPoints.length > 0) {
+                // Select the strongest point from nearby candidates
+                const strongestPoint = nearbyPoints.reduce((prev, curr) => {
+                    return (curr.strength > prev.strength) ? curr : prev;
+                });
+
+                // Add the strongest point's time
+                finalPoints.push(strongestPoint.time);
+                lastSelectedTime = strongestPoint.time; // Update the last selected time
+            }
+        }
+    });
+
+    // Ensure the final points are unique
+    let uniqueFinalPoints = [...new Set(finalPoints)];
+    // console.log("unique: ", uniqueFinalPoints);
+
+    // Step 4: Remove any points where the gap between consecutive points is shorter than 3 seconds (except the final point)
+    uniqueFinalPoints = uniqueFinalPoints.filter((point, index, array) => {
+        if (index === array.length - 1) {
+            return true; // Always keep the final point
+        }
+        return (array[index + 1] - point >= 3); // Keep if the gap to the next point is >= 3 seconds
+    });
+
+    // console.log("Filtered points (gap >= 3): ", uniqueFinalPoints);
+
+    // Step 5: If we have more than the desired count, slice to desired count
+    if (uniqueFinalPoints.length > desiredCount) {
+        // console.log("more");
+        return uniqueFinalPoints.slice(0, desiredCount);
     } else {
-        // If no hex code is found, default to white or no color
-        colorPicker.value = "#FFFFFF";
-        colorPickerButton.style.backgroundColor = "white";
+        // console.log("less");
+        // Otherwise, insert additional points if needed
+        return insertAdditionalPoints(uniqueFinalPoints, combined, beats, lowEnergyBeats, desiredCount, songDuration);
     }
 }
 
-function show_transitions() {
-    const addButton = document.getElementById("add-transitions-button");
-    const deleteButton = document.getElementById("deleteTransitionButton");
-    const nextButton = document.getElementById("next-transition");
-    const defaultButton = document.getElementById("defaultTransitionButton");
-    const finalizeButton = document.getElementById("finalize-timestamps")
+// helper function to create default time stamps if too few are generated
+function insertAdditionalPoints(finalPoints, allPoints, beats, lowEnergyBeats, desiredCount, songDuration) {
+    // console.log("insert");
 
-    addButton.style.display = "block";
-    deleteButton.style.display = "block";
-    defaultButton.style.display = "block";
-    finalizeButton.style.display = "block";
-    nextButton.style.display = "none";
-}
+    const newPoints = [...finalPoints];
+    newPoints.sort((a, b) => a - b);
+    const minGap = 4;
+    const endGapThreshold = 6;  // minimum gap of 3 seconds between last point and total song duration
 
-function show_default_boxes(vibeInputVal = "", colorInputVal = "", imageryInputVal = "", textureInputVal = "") {
-    //show items in input details and image gallery
-    const finalizeButton = document.getElementById("finalize-timestamps");
-    const detailsBox = document.getElementById("detailsBox")
-    const vibeBox = document.getElementById("vibeBox")
-    const colorBox = document.getElementById("colorBox")
-    const imageryBox = document.getElementById("imageryBox")
-    const textureBox = document.getElementById("textureBox")
-    const vibeInput = document.getElementById("vibeInput");
-    const colorInput = document.getElementById("colorInput");
-    const imageryInput = document.getElementById("imageryInput");
-    const textureInput = document.getElementById("textureInput");
-    const image_examples = document.getElementById("image_examples")
-    const detail_gallery_toggle = document.getElementById("dropdownToggle")
-    // console.log("IN SHOW DEFAULT BOXES: ", vibeInputVal, colorInputVal, imageryInputVal, textureInputVal)
+    let loopCounter = 0; // Counter to prevent infinite loops
+    const maxLoops = 15; // Maximum number of iterations to prevent infinite loops
 
+    while (newPoints.length < desiredCount && loopCounter < maxLoops) {
+        loopCounter++; // Increment the loop counter
 
-    const fillDefaultsButton = document.getElementById("fill-defaults")
-    const trash = document.getElementById("trash")
-    const toggleButton = document.getElementById("toggleMotionButton")
-    finalizeTimestamps('time', -1, -1)
+        const gaps = [];
 
-    // trash.style.display = "flex";
-    detailsBox.style.display = "block";
-    vibeBox.style.display = "block";
-    colorBox.style.display = "block";
-    imageryBox.style.display = "block";
-    textureBox.style.display = "block";
-    detail_gallery_toggle.style.display = "block";
-    fillDefaultsButton.style.display = "block";
-    toggleButton.style.display = "block";
+        // Include the start of the song as a gap
+        if (newPoints.length === 0 || newPoints[0] > 0) {
+            gaps.push({ start: 0, end: newPoints[0] || songDuration, gap: newPoints[0] || songDuration });
+        }
 
+        for (let i = 0; i < newPoints.length - 1; i++) {
+            const start = newPoints[i];
+            const end = newPoints[i + 1];
+            gaps.push({ start, end, gap: end - start });
+        }
 
-    image_examples.style.display = "block"
-    finalizeButton.style.display = "none";
+        // Include the end of the song as a gap
+        const lastPoint = newPoints[newPoints.length - 1] || 0;
+        const remainingGap = songDuration - lastPoint;
 
+        if (remainingGap >= endGapThreshold) {
+            gaps.push({ start: lastPoint, end: songDuration, gap: remainingGap });
+        }
 
-    //Set up Input Details
+        const maxGapObj = gaps.reduce((max, gap) => gap.gap > max.gap ? gap : max, { gap: 0 });
 
-    colorBox.style.justifyContent = "center";
-    colorBox.style.alignContent = "center";
-
-    // Show color picker when button is clicked
-    colorPickerButton.addEventListener("click", function () {
-        // console.log("hello color click")
-        updateColorPickerFromInput();  // Update color picker to match the current color input
-        colorPicker.click();           // Trigger the color picker
-    });
-
-    // When a color is chosen from the color picker, update the color input with the selected hex code
-    colorPicker.addEventListener("input", function (event) {
-        colorInput.value = event.target.value;
-        colorPickerButton.style.backgroundColor = event.target.value;
-    });
-
-    // Update color picker whenever color input changes
-    colorInput.addEventListener("input", updateColorPickerFromInput);
-    // console.log("DEFAULT BOX INPUT: ", vibeInput, colorInput, imageryInput,)
-    vibeInput.value = vibeInputVal;
-    colorInput.value = colorInputVal;
-    imageryInput.value = imageryInputVal;
-    textureInput.value = textureInputVal;
-
-    // Add default transition options
-    let allRegions = Object.values(waveform.regions.list);
-    let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
-
-    if (orangeRegions.length === 0 && tablemade == false) {
-        const useDefault = window.confirm('No transition regions found. Would you like to add some default transitions?');
-        if (useDefault) {
-            addDefaultTransitions();
-            allRegions = Object.values(waveform.regions.list);
-            orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
-
+        if (maxGapObj.gap >= minGap) {
+            const midPoint = (maxGapObj.start + maxGapObj.end) / 2;
+            const nearbyPoints = allPoints.filter(p => p.time >= maxGapObj.start && p.time <= maxGapObj.end);
+            // console.log("nearby: " + nearbyPoints);
+            // Try to align with lowEnergy or beat points
+            const candidates = nearbyPoints.filter(p => Math.abs(p.time - midPoint) <= 2);
+            // console.log("candiates: " + candidates)
+            if (candidates.length > 0) {
+                const chosenPoint = candidates.reduce((prev, curr) => (curr.strength > prev.strength) ? curr : prev);
+                if (!newPoints.includes(chosenPoint.time) && (newPoints.length === 0 || chosenPoint.time - newPoints[newPoints.length - 1] >= minGap)) {
+                    newPoints.push(chosenPoint.time);
+                }
+            }
         } else {
-            console.log('Proceeding without transitions.');
-        }
-        let greenRegions = allRegions.filter(region => region.color === 'green').sort((a, b) => a.start - b.start);
-        let orangetempRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)').sort((a, b) => a.start - b.start);
-        updatedGreenRegions = greenRegions;
-        if (orangeRegions.length > 0) {
-            updatedOrangeRegions = orangetempRegions;
+            // Break if there are no more gaps large enough to insert
+            break;
         }
 
-        // console.log("ADDED TO UPDATED:",updatedGreenRegions.length,updatedOrangeRegions.length)
-
-    }
-}
-
-function makeTimestamp(isTrans) {
-
-    if (isTrans) {
-        // console.log("trans");
-        transitionsAdded = true;
-        createTransitionLines();
-    } else {
-        // console.log("other")
-        finalizeTimestamps('time', -1, -1);
+        // Sort again to find new gaps
+        newPoints.sort((a, b) => a - b);
     }
 
+    // Handle final point placement logic if needed
+    if (songDuration - newPoints[newPoints.length - 1] >= 5) {
+        // Find a strong beat or lowEnergy beat within this range
+        const candidates = allPoints.filter(p => p.time >= (songDuration - 4) && p.time <= (songDuration - 1.5));
+        // console.log("candidates: ", candidates);
+        if (candidates.length > 0) {
+            const chosenFinalPoint = candidates.reduce((prev, curr) => (curr.strength > prev.strength) ? curr : prev);
+            // console.log("chosen final point: ", chosenFinalPoint)
+            if (!newPoints.includes(chosenFinalPoint.time)) {
+                newPoints.push(chosenFinalPoint.time);
+            }
+        }
+    }
+
+    return [...new Set(newPoints)].slice(0, desiredCount);
 }
 
 
+// Updates list of significant points (called if make changes
+// to interval/transition in waveform) 
+function updateNewsigPoints() {
+    // Clear newsigPoints and update based on current label values
+    newsigPoints = [];
+    const labels = document.querySelectorAll('.time-label');
+    labels.forEach(label => {
+        newsigPoints.push(parseFloat(label.value));
+    });
+    newsigPoints.sort((a, b) => a - b); // Sort the points in ascending order
+}
+
+
+//#------------------- Table, Waveform, intervals, transitions -------------------
+
+// TABLE FUNCTIONS
+//MAIN FUNCTION called after first choosing intervals and transitions
+//Opens up "Input Details" and "Image Gallery"/"Image Brainstorming"
 function finalizeTimestamps(name, regionIndex_form, regionIndex_trans, transitionData = {}) {
     // const timestampsContainer = document.getElementById('timestampsContainer');
     // timestampsContainer.innerHTML = ''; // Clear previous timestamps
@@ -455,7 +853,7 @@ function finalizeTimestamps(name, regionIndex_form, regionIndex_trans, transitio
     existingValues = Object.keys(existingValues)
         .sort((a, b) => Number(a) - Number(b))  // Sort keys numerically in ascending order
         .reduce((newObj, key, index) => {
-            console.log("index:", key, index)
+            // console.log("index:", key, index)
             newObj[index] = existingValues[key];  // Reassign values to new consecutive keys
             return newObj;
         }, {});
@@ -640,10 +1038,10 @@ function finalizeTimestamps(name, regionIndex_form, regionIndex_trans, transitio
     }
 
 
-    console.log("------- EXISTING TRANSITION ----------")
-    console.log(existingTransitionValues)
+    // console.log("------- EXISTING TRANSITION ----------")
+    // console.log(existingTransitionValues)
 
-    console.log("NEW ----------------------")
+    // console.log("NEW ----------------------")
     // Get regions from WaveSurfer
     let allRegions = Object.values(waveform.regions.list);
     let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
@@ -761,9 +1159,8 @@ function finalizeTimestamps(name, regionIndex_form, regionIndex_trans, transitio
 }
 
 
-let existingTransitions = []; // Track all transitions globally
-
-
+// Adds a container for the transitions into the table 
+// (technically does stuff only after table is created when you press "Fill With Defaults")
 function addTransitions(id, startTime, endTime, i, existingTransitionValues, regionIndex, transitionData = {}, name = "") {
     // console.log("existing transitions IN ADD TRANSITION: ", existingTransitionValues, name)
     // console.log("AddTrans2 called");
@@ -935,52 +1332,490 @@ function addTransitions(id, startTime, endTime, i, existingTransitionValues, reg
     });
 }
 
-function fillDefaultsTemp(load = false) {
-    const vibeInput = document.getElementById("vibeInput");
-    const colorInput = document.getElementById("colorInput");
-    const imageryInput = document.getElementById("imageryInput");
-    const textureInput = document.getElementById("textureInput");
-    const trash = document.getElementById("trash");
-    const processButton = document.getElementById("process-table")
-    const saveState = document.getElementById("saveState")
-    const checkQueue = document.getElementById("checkQueue")
-    const downloadPrompt = document.getElementById("downloadPrompt")
-    const toggle_helper = document.getElementById("toggle_helper")
-    const seed = document.getElementById("seed")
-
-
-    // Check if any of the inputs are empty
-    if (!vibeInput.value || !colorInput.value || !imageryInput.value || !textureInput.value) {
-        const proceed = window.confirm(
-            "Some fields are empty: Vibe, Color, Imagery, or Texture. Do you want to proceed anyway?"
-        );
-        if (!proceed) {
-            return; // Stop execution if the user chooses not to proceed
+// WAVEFORM FUNCTIONS
+// MAIN FUNCTIon to create regions (transition and interval) on waveform
+function setupRegions(waveform, data, content, color, size, drag, resize = false) {
+    data.forEach(beat => {
+        // Create a region with optional drag and resize capabilities
+        const region = waveform.addRegion({
+            start: beat,
+            end: beat + size,  // Duration of the region
+            color: color, // Color for the region
+            content: content, // Label content for the region
+            drag: drag, // Allow dragging
+            resize: resize, // Allow resizing from both sides
+        });
+        if (color == 'green') {
+            region.element.style.zIndex = 100;
+            region.on('update-end', () => refreshTable("form"));
+            region.on('remove', () => refreshTable("form"));
+            // console.log("add green region")
         }
-    }
 
-    // Show the toggle button and proceed with fillDefaults
-    const toggleButton = document.getElementById("toggleMotionButton");
-    toggleButton.style.display = "block";
-    trash.style.display = "flex";
-    if(load == true){
-        console.log("DON'T FILL DEFAULTS");
-    }else{
-        console.log("FILL DEFAULTS")
-        fillDefaults();
-    }
-    
-    processButton.style.display = "block";
-    seed.style.display = "inline-block";
-    saveState.style.display = "block";
-    downloadPrompt.style.display = "block";
-    checkQueue.style.display = "block";
-    // toggle_helper.style.display = "inline-block";
-    toggle_helper.style.visibility = 'visible';
-    toggle_helper.style.opacity = '1';
+        // Add labels for Significant Points regions (as before)
+        if (content === "Significant Points") {
+            const label = document.createElement('span');
+            label.className = 'region-label';
+            label.innerText = region.start.toFixed(2); // Display the start time rounded to 2 decimals
+            label.style.position = 'absolute';
+            label.style.color = 'black';
+            label.style.fontSize = '12px';
+            label.style.background = 'rgba(255, 255, 255, 0.7)';
+            label.style.padding = '2px';
+            label.style.borderRadius = '3px';
+
+            region.element.appendChild(label);
+
+            region.on('update', () => {
+                label.innerText = region.start.toFixed(2); // Update the label's text
+            });
+
+            region.on('update-end', () => {
+                label.style.left = `${region.element.getBoundingClientRect().width / 2 - label.clientWidth / 2}px`;
+                label.innerText = region.start.toFixed(2); // Update the label's text after dragging ends
+            });
+        }
+
+        // Special handling for transitions (make sure these are draggable and resizable)
+        if (content === "Transition") {
+            console.log("Transition region created at", region.start, "with size", size);
+
+            // Add an event listener to handle resizing (if needed)
+            region.on('resize', () => {
+                console.log("Region resized: Start =", region.start, "End =", region.end);
+            });
+
+            // Update visual representation during dragging or resizing
+            region.on('update-end', () => {
+                console.log("Region updated: Start =", region.start, "End =", region.end);
+            });
+        }
+    });
+}
+
+
+function addNewInterval() {
+    // add interval
+    const cursorTime = waveform.getCurrentTime();
+    data = [cursorTime]
+    newsigPoints = [data[0], ...newsigPoints];
+    const index = newsigPoints.sort((a, b) => a - b).indexOf(data[0]);
+
+    newsigPoints = newsigPoints.sort((a, b) => a - b);
+    setupRegions(waveform, data, "Significant Points", 'green', 0.25, true);
+    refreshTable("form");
 
 }
 
+// deletes interval
+function delete_intervals() {
+    // Toggle delete mode on/off when the function is called
+    deleteMode = !deleteMode;
+
+    const deleteButton = document.getElementById('deleteButton');
+
+    if (deleteMode) {
+        // console.log("Delete mode enabled. Click on a region to delete it.");
+
+        // Update the button style to reflect the active delete mode
+        deleteButton.textContent = "Exit Delete Mode";
+        deleteButton.style.backgroundColor = "red";
+        deleteButton.style.color = "white";
+
+        // Add a hover effect and region click event listener
+        Object.values(waveform.regions.list).forEach(region => {
+            if (region.color === 'green') {
+                // Add hover effect to highlight in red
+                region.element.addEventListener('mouseenter', () => {
+                    if (deleteMode) {
+                        region.update({ color: 'red' });
+                    }
+                });
+                region.element.addEventListener('mouseleave', () => {
+                    if (deleteMode) {
+                        region.update({ color: 'green' });
+                    }
+                });
+            }
+        });
+
+        // Add the event listener for region click
+        waveform.on('region-click', (region, e) => {
+            e.stopPropagation(); // Prevent any other action from triggering
+
+            // Only delete if the region is a green significant point
+            if (region.color === 'red') { // After hover, region will be red
+                // Remove the region from the waveform
+                region.remove();
+
+                // Update the newsigPoints array by filtering out the deleted region
+                console.log("reg start: ", region.start)
+                let deletedTimeIndex = 0;
+                for (let i = 0; i < newsigPoints.length; i++) {
+                    if (region.start < newsigPoints[i]) {
+                        deletedTimeIndex = i;
+                        break;
+                    } else {
+                        deletedTimeIndex = newsigPoints.length; // If region.start is greater than all elements, it will be at the end
+                    }
+                }
+                newsigPoints = newsigPoints.filter(time => time !== region.start);
+                delete existingValues[deletedTimeIndex];
+                if (deletedTimeIndex === 0) {
+
+                }
+
+                refreshTable("form")
+            } else {
+                console.log("Clicked on a non-deletable region. No action taken.");
+            }
+        });
+    } else {
+        // Restore the button to its original state
+        deleteButton.textContent = "Delete Intervals";
+        deleteButton.style.backgroundColor = "";
+        deleteButton.style.color = "";
+
+        // Remove the hover and click event listeners when delete mode is off
+        Object.values(waveform.regions.list).forEach(region => {
+            if (region.color === 'green' || region.color === 'red') {
+                region.element.removeEventListener('mouseenter', null);
+                region.element.removeEventListener('mouseleave', null);
+            }
+        });
+
+        waveform.un('region-click'); // Remove the region click listener when delete mode is off
+    }
+}
+
+// Adds default transitions around intervals (+ some logic to ensure no overlapped transitions)
+function addDefaultTransitions() {
+    const allRegions = Object.values(waveform.regions.list);
+    const greenRegions = allRegions.filter(region => region.color === 'green');
+    let transitionRegions = [];
+    let overlapDetected = false;
+
+    // Create 1 sec transition around interval start time
+    greenRegions.forEach(region => {
+        const startTime = region.start;
+
+        const transitionStart = Math.max(0, startTime - 0.5); // Ensure start time is not negative
+        const transitionEnd = startTime + 0.5;
+
+        transitionRegions.push({ start: transitionStart, end: transitionEnd });
+    });
+
+    // Sort regions by start time for easier overlap resolution
+    transitionRegions.sort((a, b) => a.start - b.start);
+
+    const waveformDuration = waveform.getDuration();
+
+    if (transitionRegions.length > 0) {
+        const lastTransitionEnd = transitionRegions[transitionRegions.length - 1].end;
+
+        // Check for overlap with waveform duration
+        if (lastTransitionEnd >= waveformDuration - 1.5) {
+            // Align final transition
+            transitionRegions.push({ start: lastTransitionEnd, end: waveformDuration });
+        } else {
+            // Final transition of 2 seconds capped at the waveform's duration
+            const finalStart = waveformDuration - 1.5;
+            transitionRegions.push({ start: finalStart, end: waveformDuration });
+        }
+    } else {
+        // If no transitions, add a final transition from 2 seconds before the end
+        transitionRegions.push({ start: waveformDuration - 1.5, end: waveformDuration });
+    }
+
+    // Resolve overlaps by shifting overlapping regions
+    for (let i = 0; i < transitionRegions.length - 1; i++) {
+        const current = transitionRegions[i];
+        const next = transitionRegions[i + 1];
+        
+
+        // If there's an overlap, shift the next region's start and end by 0.01
+        if (current.end > next.start) {
+            overlapDetected = true;
+            const shiftAmount = 0.01;
+            const overlap = current.end - next.start + shiftAmount;
+
+            next.start += overlap;
+            next.end += overlap;
+
+            // Ensure the shifted region doesn't exceed waveform duration
+            if (next.end > waveformDuration) {
+                next.end = waveformDuration;
+                next.start = Math.max(next.start, waveformDuration - 2); // Adjust start if needed
+            }
+        }
+        
+    }
+
+    // Add the regions to the waveform
+    transitionRegions.forEach(region => {
+        const reg = waveform.addRegion({
+            start: region.start,
+            end: region.end,
+            color: 'rgba(255, 165, 0, 0.5)',
+            drag: true,
+            resize: true,
+        });
+        reg.on('update-end', () => refreshTable("none"));
+        reg.on('remove', () => refreshTable("none"));
+    });
+    if (overlapDetected) {
+        alert("Warning: Some intervals too close. Transition sections were shifted to prevent overlap. This may result in different outputs than expected. Try to ensure a 3+ second gap between intervals.");
+    }
+
+    console.log("Added transitions (after resolving overlaps):", transitionRegions);
+}
+
+// adds transition region around waveform cursor location
+function addTransitionRegions() {
+    const waveformDuration = waveform.getDuration();
+    const cursorTime = waveform.getCurrentTime(); // Get the current cursor position
+    let regionStart = parseFloat((cursorTime - 0.5).toFixed(2));
+    let regionEnd = parseFloat((cursorTime + 0.5).toFixed(2));
+    
+    if (regionStart < 0) {
+        regionStart = 0;
+    }
+    if (regionEnd > waveformDuration) {
+        regionEnd = waveformDuration;
+    }
+
+    const orangeRegions = [];
+    Object.values(waveform.regions.list).forEach((region) => {
+        if (region.color === 'rgba(255, 165, 0, 0.5)') { // Check for orange regions
+            orangeRegions.push({ start: region.start, end: region.end });
+        }
+    });
+
+    // Check for overlapping regions
+    const overlappingRegions = [];
+    orangeRegions.forEach(({ start: existingStart, end: existingEnd }) => {
+        if (regionStart < existingEnd && regionEnd > existingStart) { // Overlapping condition
+            overlappingRegions.push({ existingStart, existingEnd });
+        }
+    });
+
+    // Resolve overlaps
+    overlappingRegions.forEach(({ key, existingStart, existingEnd }) => {
+        if (regionStart < existingStart && regionEnd > existingStart) {
+            // Adjust new region to end before the overlapping region starts
+            regionEnd = existingStart - 0.01;
+        } else if (regionStart < existingEnd && regionEnd > existingEnd) {
+            // Adjust new region to start after the overlapping region ends
+            regionStart = existingEnd + 0.01;
+        } else if (regionStart >= existingStart && regionEnd <= existingEnd) {
+            // If fully contained, adjust new region to not overlap
+            regionStart = existingEnd + 0.01;
+            alert("Cannot overlap regions. Shifted to nearest valid location.")
+        }
+        // Update the overlapping region to prevent further conflicts
+        existingTransitionValues[key] = [existingStart, existingEnd];
+    });
+
+    // Ensure the new region is valid after adjustments
+    if (regionStart >= regionEnd) {
+        console.log("Cannot add region: resulting start/end times are invalid.");
+        return;
+    }
+
+    // Add the new region
+    const reg = waveform.addRegion({
+        start: regionStart,
+        end: regionEnd,
+        color: 'rgba(255, 165, 0, 0.5)',
+        drag: true,
+        resize: true,
+    });
+
+    // Event listeners for updates
+    reg.on('update-end', () => refreshTable("trans"));
+    reg.on('remove', () => refreshTable("trans"));
+
+    // Add the new region to existingTransitionValues
+    const newRegionKey = Object.keys(existingTransitionValues).length;
+    existingTransitionValues[newRegionKey] = [regionStart, regionEnd];
+
+    console.log(`Added transition region at: ${regionStart} to ${regionEnd}`);
+    refreshTable("trans");
+
+}
+
+// delete transition
+function delete_transitions() {
+    // Toggle delete mode for transitions
+    deleteModeT = !deleteModeT;
+
+    const deleteButton = document.getElementById('deleteTransitionButton'); // Assuming a separate button for deleting transitions
+
+    if (deleteModeT) {
+        console.log("Transition delete mode enabled. Click on an orange transition to delete it.");
+
+        // Update the button style to reflect the active delete mode
+        deleteButton.textContent = "Exit Transition Delete Mode";
+        deleteButton.style.backgroundColor = "red";
+        deleteButton.style.color = "white";
+
+        // Add hover effect and region click event listener
+        Object.values(waveform.regions.list).forEach(region => {
+            // console.log("hello");
+            if (region.color === 'rgba(255, 165, 0, 0.5)') { // Focus on orange-colored transitions
+                // Add hover effect to highlight in red
+                region.element.addEventListener('mouseenter', () => {
+                    if (deleteModeT) {
+                        region.update({ color: 'rgba(255, 0, 0, 0.5)' }); // Temporarily change to red
+                    }
+                });
+                region.element.addEventListener('mouseleave', () => {
+                    if (deleteModeT) {
+                        region.update({ color: 'rgba(255, 165, 0, 0.5)' }); // Revert to orange
+                    }
+                });
+            }
+        });
+
+        waveform.on('region-click', (region, e) => {
+            e.stopPropagation(); // Prevent other actions from triggering
+
+            if (region.color === 'rgba(255, 0, 0, 0.5)') {
+                // Remove the region from the waveform
+                region.remove();
+                refreshTable("trans");
+
+                // console.log("Deleted transition region:", region);
+            } else {
+                console.log("Clicked on a non-deletable region. No action taken.");
+            }
+        });
+
+    } else {
+        console.log("Transition delete mode disabled.");
+
+        // Restore the button to its original state
+        deleteButton.textContent = "Delete Transitions";
+        deleteButton.style.backgroundColor = "";
+        deleteButton.style.color = "";
+
+        // Remove the hover and click event listeners when delete mode is off
+        Object.values(waveform.regions.list).forEach(region => {
+            if (region.color === 'rgba(255, 165, 0, 0.5)' || region.color === 'rgba(255, 0, 0, 0.5)') {
+                region.element.removeEventListener('mouseenter', null);
+                region.element.removeEventListener('mouseleave', null);
+            }
+        });
+
+        waveform.un('region-click'); // Remove the region click listener when delete mode is off
+    }
+}
+
+
+// MAIN FUNCTION used when updating intervals/transitions/making changes
+// to ensure all changes are properly reflected in table
+function refreshTable(new_type, transitionData = {}) {
+    if(new_type == "load"){
+        return
+    }
+    if (tablemade) {
+
+        const allRegions = Object.values(waveform.regions.list);
+
+        let greenRegions = allRegions.filter(region => region.color === 'green').sort((a, b) => a.start - b.start);
+        let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)').sort((a, b) => a.start - b.start);
+
+        newsigPoints = greenRegions.map(region => region.start);
+
+        let newRegionIndex_trans = 't';
+        let newRegionIndex_form = 'f';
+
+        if (new_type === "trans") {
+
+            newRegionIndex_trans = handleRegionChanges(orangeRegions, updatedOrangeRegions, existingTransitionValues, "trans");
+            added = false;
+
+            updatedOrangeRegions = orangeRegions;
+        } else if (new_type === "form") {
+            
+            newRegionIndex_form = handleRegionChanges(greenRegions, updatedGreenRegions, existingValues, "form");
+            updatedGreenRegions = greenRegions;
+        }
+
+        if(new_type == "2D" || new_type == "3D"){
+            finalizeTimestamps(new_type, newRegionIndex_form, newRegionIndex_trans,transitionData);
+        }else{
+            const audioDuration = waveform.getDuration();
+            finalizeTimestamps("time", newRegionIndex_form, newRegionIndex_trans, transitionData);
+        }
+    }
+}
+
+// Code to handle changed regions (move, add, delete)
+function handleRegionChanges(currentRegions, updatedRegions, valuesDict, type) {
+    // Find added or removed regions by comparing current with updated
+
+    const mismatchedRegions = currentRegions.filter(region => {
+        return !updatedRegions.some(updatedRegion =>
+            updatedRegion.start.toFixed(2) === region.start.toFixed(2) && updatedRegion.end.toFixed(2) === region.end.toFixed(2)
+        );
+    });
+
+    const mismatchedRegionsOther = updatedRegions.filter(region => {
+        return !currentRegions.some(currentRegion =>
+            currentRegion.start.toFixed(2) === region.start.toFixed(2) && currentRegion.end.toFixed(2) === region.end.toFixed(2)
+        );
+    });
+    // console.log("size current: ", currentRegions.length)
+    currentRegions.forEach((region, index) => {
+        const start = region.start;
+        const end = region.end;
+
+        // Check if existingTransitionValues is defined
+        // console.log("current times:", index, start, end);
+    });
+
+    // console.log("size old: ", updatedRegions.length)
+    updatedRegions.forEach((region, index) => {
+        const start = region.start;
+        const end = region.end;
+
+        // Check if existingTransitionValues is defined
+    });
+
+    const chosenMismatchedRegions = mismatchedRegions.length > 0 ? mismatchedRegions : mismatchedRegionsOther;
+    const chosenMismatchedIndexes = chosenMismatchedRegions.map(mRegion => updatedRegions.indexOf(mRegion));
+
+    // console.log("Mismatched region: ", mismatchedRegions);
+    // console.log("OTHER DIR MISMATCH: ", mismatchedRegionsOther)
+    // console.log("chosen mismatch: ", chosenMismatchedRegions, chosenMismatchedIndexes);
+
+    if (currentRegions.length > updatedRegions.length) {
+        const newRegionIndex = mismatchedRegions.length ? currentRegions.indexOf(mismatchedRegions[0]) : currentRegions.length - 1;
+        // console.log("new index: ", newRegionIndex);
+        // console.log(valuesDict);
+        return newRegionIndex
+    } else if (currentRegions.length < updatedRegions.length) {
+        // console.log("REMOVE REGION: ", currentRegions)
+        // console.log("REMOVE REGION ex val before: ", existingTransitionValues)
+        // Region removed; delete corresponding entry in `valuesDict`
+        const removedRegionIndex = chosenMismatchedRegions.map(mRegion => updatedRegions.indexOf(mRegion));
+        // console.log("removed index: ", (-1) * removedRegionIndex[0])
+        // delete valuesDict[removedRegionIndex];
+        // console.log("REMOVE REGION ex val after: ", existingTransitionValues)
+        return removedRegionIndex[0] * (-1) - 1
+
+    }
+
+    console.log("Updated valuesDict after region change:", valuesDict);
+}
+
+
+
+//#------------------- "Input Details" and logic to create video + display outputs -------------------
+
+// Fills table with defaults based on values in "Input Details"
+// If no user values in "Input Details", uses defaults in table instead 
 function fillDefaults() {
 
     // Conflict mapping for vibes and colors to textures
@@ -1145,6 +1980,8 @@ function fillDefaults() {
             existingValues[index] = intervalValues;
         }
 
+        // Replaces interval and transition values if already prepopulated and you move around
+        // the intervals
         existingValues = Object.keys(existingValues)
             .sort((a, b) => Number(a) - Number(b))  // Sort keys numerically in ascending order
             .reduce((newObj, key, index) => {
@@ -1164,9 +2001,7 @@ function fillDefaults() {
 }
 
 
-
-
-// Validation Function
+// Validation Function to ensure in right format to pass into API
 function validateInputs(motionInput, strengthInput, index) {
     // console.log("motion values: ", motionInput)
     // console.log("strengthValues", strengthInput)
@@ -1211,7 +2046,8 @@ function validateInputs(motionInput, strengthInput, index) {
     return true;
 }
 
-// Updated gatherFormData function
+// Gathers all values from interval portions of table and translates
+// to dict format so can be sent to API after being formatted in tasks.py
 function gatherFormData() {
     // let roundedSignificantPoints = newsigPoints.map(point => point.toFixed(2));
     let roundedSignificantPoints = newsigPoints
@@ -1252,7 +2088,7 @@ function gatherFormData() {
     return formData;
 }
 
-
+// Same as gatherFormData, but for transitions since they're treated as separate entities in table
 function gatherTransitionData(formData) {
     let transitionsData = {};
 
@@ -1296,146 +2132,7 @@ function gatherTransitionData(formData) {
     return transitionsData;
 }
 
-function checkJobStatus(jobId) {
-    const loadingIndicator = document.getElementById('loadingIndicator_process');
-    loadingIndicator.style.display = "block"; // Show loading indicator
-    console.log("check status")
-    // Check job status every 3 seconds (you can adjust this interval)
-    const interval = setInterval(() => {
-        fetch(`/check-job-status/${jobId}`, {
-            method: 'GET',
-        })
-        .then(response => response.json())
-        .then(statusData => {
-            
-            console.log('Job Status:', statusData);
-            
-            // If the job is finished
-            if (statusData.status === 'finished') {
-                loadingIndicator.style.display = 'none';
-                console.log("FINISHED")
-                clearInterval(interval);  // Stop polling
-                
-                // Process the result when the job is done
-                handleJobResult(statusData);
-            }
-            else if (statusData.status === 'failed') {
-                // If the job has failed, stop polling and display an error
-                // loadingIndicator.style.display = 'none';
-                // console.error("Job failed:", statusData.error || "Unknown error");
-                // alert(`Job failed: ${statusData.error || "An unknown error occurred"}`);
-                // clearInterval(interval); // Stop polling
-                loadingIndicator.style.display = 'none';
-                console.error("Job failed:", statusData.error);
-                alert(`Job failed: ${statusData.error}`);
-                clearInterval(interval); // Stop polling
-            }
-        })
-        .catch(error => {
-            loadingIndicator.style.display = 'none';
-            console.error('Error fetching job status:', error);
-        });
-    }, 3000);  // 3000 ms = 3 seconds
-}
-
-// Handle the job result
-function handleJobResult(statusData) {
-    // console.log("status data:", statusData);
-    const filename = statusData.result.output.filename;  // The video filename provided in the response
-    // Create the request URL
-    const videoUrl = statusData.result.output.output_url
-    // console.log('video url: ', videoUrl)
-    const adjustments = statusData.result.output.adjustments
-    
-
-    const data = {
-        'filename': filename,
-        'video_url': statusData.result.output.output_url,
-        'adjustments': adjustments
-    };
-    // console.log("HANDLE JOB data: " + data);
-    fetch(`/get_video/${filename}`, {
-        method: 'POST',  // Change to POST
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)  // Pass video_url in the request body
-    })
-        .then(response => response.blob())  // Get the video file as a blob
-        .then(blob => {
-            // Create a URL for the blob
-            const downloadUrl = URL.createObjectURL(blob);
-            
-            // Create a link element and trigger the download
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = `${filename}_output_combined.mp4`;  // Specify the downloaded file name
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        })
-        .catch(error => {
-            console.error('Error downloading the video:', error);
-        });
-
-    // console.log("status data: ", statusData);
-    if (statusData.result.error) {
-        console.log("error: ", statusData.result.error);
-        alert(`Error: ${statusData.result.error}. Check API dashboard and try again.`);
-        return; // Exit the function to prevent further processing
-    }
-    console.log("result: ", statusData.result)
-    const resultHTML = buildResultHTML(statusData.result);  // Assume the result is in 'statusData.result'
-    console.log("job completed")
-    // Display the results on the page
-    document.getElementById('processedDataContainer').innerHTML = resultHTML;
-    document.getElementById('processedDataContainer').style = "border: 2px solid black;";
-
-    // Hide loading indicator after completion
-    // const loadingIndicator = document.getElementById('loadingIndicator');
-    // loadingIndicator.style.display = "none";
-}
-
-// Build the HTML result
-function buildResultHTML(result) {
-    let backgroundImageUrl = $('#img-view').css('background-image');
-    
-    // Extract the URL (removes the `url("...")` part)
-    backgroundImageUrl = backgroundImageUrl.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
-
-    // Now backgroundImageUrl contains the URL in text format
-    console.log("image url: ", backgroundImageUrl);
-    result = result.output
-    console.log("build result: ", result)
-    let resultHTML = '';
-
-    // Build HTML based on the result (adjust this according to your response data structure)
-    if (result.motion_prompts) {
-        resultHTML += `<h3>Motion Strings:</h3>`;
-        for (const [motion, transitions] of Object.entries(result.motion_prompts)) {
-            resultHTML += `<p>${motion}: ${transitions.join(', ')}</p>`;
-        }
-    }
-
-    if (result.prompts) {
-        resultHTML += `<h3>Prompts:</h3><p>${result.prompts}</p>`;
-    }
-
-    if (result.input_image_url) {
-        // resultHTML += `<h3>Initial Image Used:</h3><p><a href="${result.input_image_url}" target="_blank">${result.input_image_url}</a></p>`;
-        resultHTML += `<h3>Initial Image Used:</h3>
-               <p><a href="${result.input_image_url}" target="_blank">Click here to view initial image</a></p>`;
-
-    }
-    
-
-    if (result.output_url) {
-        resultHTML += `<h3>Raw Replicate Output:</h3><p><a href="${result.output_url}" target="_blank">Click here to view output</a></p>`;
-    }
-
-    return resultHTML;
-}
-
+// MAIN FUNCTION Creates main table to hold intervals and transition scene mappings
 function processTable() {
 
     const orangeRegions = [];
@@ -1537,68 +2234,263 @@ function processTable() {
         });
 }
 
-function downloadPrompt() {
-    const formData = gatherFormData();
-    const transitionsData = gatherTransitionData(formData);
-    let seed = document.getElementById("seed").value;
+// Used to check status of jobs sent to redis queue
+function checkJobStatus(jobId) {
+    const loadingIndicator = document.getElementById('loadingIndicator_process');
+    loadingIndicator.style.display = "block"; // Show loading indicator
+    console.log("check status")
+    // Check job status every 3 seconds (you can adjust this interval)
+    const interval = setInterval(() => {
+        fetch(`/check-job-status/${jobId}`, {
+            method: 'GET',
+        })
+        .then(response => response.json())
+        .then(statusData => {
+            
+            console.log('Job Status:', statusData);
+            
+            // If the job is finished
+            if (statusData.status === 'finished') {
+                loadingIndicator.style.display = 'none';
+                console.log("FINISHED")
+                clearInterval(interval);  // Stop polling
+                
+                // Process the result when the job is done
+                handleJobResult(statusData);
+            }
+            else if (statusData.status === 'failed') {
+                // If the job has failed, stop polling and display an error
+                // loadingIndicator.style.display = 'none';
+                // console.error("Job failed:", statusData.error || "Unknown error");
+                // alert(`Job failed: ${statusData.error || "An unknown error occurred"}`);
+                // clearInterval(interval); // Stop polling
+                loadingIndicator.style.display = 'none';
+                console.error("Job failed:", statusData.error);
+                alert(`Job failed: ${statusData.error}`);
+                clearInterval(interval); // Stop polling
+            }
+        })
+        .catch(error => {
+            loadingIndicator.style.display = 'none';
+            console.error('Error fetching job status:', error);
+        });
+    }, 3000);  // 3000 ms = 3 seconds
+}
 
-    seed = parseInt(seed, 10);
-    if (isNaN(seed)) {
-        seed = 868591112; // Default value
-    }
-    let backgroundImageUrl = $('#img-view').css('background-image');
-
-    // Extract the URL (removes the `url("...")` part)
-    backgroundImageUrl = backgroundImageUrl.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
-
-    // console.log("image url: ", backgroundImageUrl);
+// After jobs return, process data to create result display table,
+// and download video
+function handleJobResult(statusData) {
+    // console.log("status data:", statusData);
+    const filename = statusData.result.output.filename;  // The video filename provided in the response
+    // Create the request URL
+    const videoUrl = statusData.result.output.output_url
+    // console.log('video url: ', videoUrl)
+    const adjustments = statusData.result.output.adjustments
+    
 
     const data = {
-        timestamps_scenes: significantPoints.map(point => point.toFixed(2)),
-        form_data: formData,
-        transitions_data: transitionsData,
-        song_len: audioDuration,
-        motion_mode: motion_mode,
-        seed: seed,
-        input_image_url: backgroundImageUrl
+        'filename': filename,
+        'video_url': statusData.result.output.output_url,
+        'adjustments': adjustments
     };
-
-    console.log("Sending data for prompt generation");
-
-    // Fetch the prompt from the backend
-    fetch('/download_prompt', {
-        method: 'POST',
+    // console.log("HANDLE JOB data: " + data);
+    fetch(`/get_video/${filename}`, {
+        method: 'POST',  // Change to POST
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data)  // Pass video_url in the request body
     })
-        .then(response => response.json())
-        .then(responseData => {
-            console.log("Prompt received:", responseData.prompt);
-
-            // Convert state to JSON and save it as a file
-            const blob = new Blob([JSON.stringify(responseData.prompt, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            // Create a temporary download link
+        .then(response => response.blob())  // Get the video file as a blob
+        .then(blob => {
+            // Create a URL for the blob
+            const downloadUrl = URL.createObjectURL(blob);
+            
+            // Create a link element and trigger the download
             const link = document.createElement('a');
-            link.href = url;
-            link.download = 'prompt.json';
+            link.href = downloadUrl;
+            link.download = `${filename}_output_combined.mp4`;  // Specify the downloaded file name
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
-            // Clean up the object URL
-            URL.revokeObjectURL(url);
-
-            console.log("Prompt saved as JSON file.");
         })
         .catch(error => {
-            console.error('Error fetching prompt:', error);
+            console.error('Error downloading the video:', error);
         });
+
+    // console.log("status data: ", statusData);
+    if (statusData.result.error) {
+        console.log("error: ", statusData.result.error);
+        alert(`Error: ${statusData.result.error}. Check API dashboard and try again.`);
+        return; // Exit the function to prevent further processing
+    }
+    console.log("result: ", statusData.result)
+    const resultHTML = buildResultHTML(statusData.result);  // Assume the result is in 'statusData.result'
+    console.log("job completed")
+    // Display the results on the page
+    document.getElementById('processedDataContainer').innerHTML = resultHTML;
+    document.getElementById('processedDataContainer').style = "border: 2px solid black;";
+
+    // Hide loading indicator after completion
+    // const loadingIndicator = document.getElementById('loadingIndicator');
+    // loadingIndicator.style.display = "none";
 }
 
+// Build the HTML result table
+function buildResultHTML(result) {
+    let backgroundImageUrl = $('#img-view').css('background-image');
+    
+    // Extract the URL (removes the `url("...")` part)
+    backgroundImageUrl = backgroundImageUrl.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+
+    // Now backgroundImageUrl contains the URL in text format
+    console.log("image url: ", backgroundImageUrl);
+    result = result.output
+    console.log("build result: ", result)
+    let resultHTML = '';
+
+    // Build HTML based on the result (adjust this according to your response data structure)
+    if (result.motion_prompts) {
+        resultHTML += `<h3>Motion Strings:</h3>`;
+        for (const [motion, transitions] of Object.entries(result.motion_prompts)) {
+            resultHTML += `<p>${motion}: ${transitions.join(', ')}</p>`;
+        }
+    }
+
+    if (result.prompts) {
+        resultHTML += `<h3>Prompts:</h3><p>${result.prompts}</p>`;
+    }
+
+    if (result.input_image_url) {
+        // resultHTML += `<h3>Initial Image Used:</h3><p><a href="${result.input_image_url}" target="_blank">${result.input_image_url}</a></p>`;
+        resultHTML += `<h3>Initial Image Used:</h3>
+               <p><a href="${result.input_image_url}" target="_blank">Click here to view initial image</a></p>`;
+
+    }
+    
+
+    if (result.output_url) {
+        resultHTML += `<h3>Raw Replicate Output:</h3><p><a href="${result.output_url}" target="_blank">Click here to view output</a></p>`;
+    }
+
+    return resultHTML;
+}
+
+
+//#------------------- Button Functions -------------------
+function playpauseControl(playPauseButton) {
+
+    if (playPauseClickHandler) {
+        playPauseButton.removeEventListener('click', playPauseClickHandler);
+    }
+
+    // Define the click handler
+    playPauseClickHandler = () => {
+        if (waveform.isPlaying()) {
+            playPauseButton.innerHTML = '▶';
+            waveform.pause();
+        } else {
+            playPauseButton.innerHTML = '⏸';
+            waveform.play();
+        }
+    };
+
+    // Attach the click handler
+    playPauseButton.addEventListener('click', playPauseClickHandler);
+    waveform.on('finish', () => {
+        playPauseButton.innerHTML = '▶';
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === ' ' && (document.activeElement === waveform.container || waveform.isPlaying())) {
+            event.preventDefault(); // Prevent page scrolling when space is pressed
+            togglePlayPause();
+        }
+    });
+}
+
+function togglePlayPause() {
+    if (waveform.isPlaying()) {
+        playPauseButton.innerHTML = '▶';
+        waveform.pause();
+    } else {
+        playPauseButton.innerHTML = '⏸';
+        waveform.play();
+    }
+}
+
+// actual zoom logic
+function applyZoom(zoomLevel) {
+    if (waveform) {
+        // Adjust the waveform zoom level
+        waveform.zoom(zoomLevel);
+
+        // Get all regions
+        const allRegions = Object.values(waveform.regions.list);
+
+        // Adjust the width of green bars based on the zoom level
+        allRegions.forEach(region => {
+            if (region.color === 'green') {
+                // Adjust thickness based on zoom level with a max size of 0.5
+                let newWidth = 0.25 / (zoomLevel / 100);
+
+                // Ensure the width doesn't exceed 0.25 when zooming out
+                if (newWidth > 0.25) {
+                    newWidth = 0.25;
+                }
+
+                // Update the region width
+                region.update({ start: region.start, end: region.start + newWidth });
+            }
+        });
+    }
+}
+
+// event listener for zoom. Calls applyZoom and sets min and max + stepping
+function audioZoom() {
+    const zoomOutButton = document.getElementById('zoomOut');
+    const zoomInButton = document.getElementById('zoomIn');
+    const zoomLevelDisplay = document.getElementById('zoomLevel');
+    const zoomControl = document.getElementById('zoomControl');
+    let zoomLevel = 0;
+
+    // Zoom limits
+    const zoomMin = 0;
+    const zoomMax = 400;
+    const zoomStep = 50;
+
+
+
+    function updateZoomLevel(newZoomLevel) {
+        zoomLevel = Math.max(zoomMin, Math.min(zoomMax, newZoomLevel)); // Ensure within bounds
+        zoomLevelDisplay.textContent = zoomLevel;
+        applyZoom(zoomLevel);
+    }
+
+    zoomOutButton.addEventListener('click', () => updateZoomLevel(zoomLevel - zoomStep));
+    zoomInButton.addEventListener('click', () => updateZoomLevel(zoomLevel + zoomStep));
+
+    zoomControl.style = "display: flex; align-items: center; gap: 10px;";
+
+}
+
+//#------------------- CLEAN SCREEN (RESET) -------------------
+
+function clearColorRegions(waveform, colorsToRemove) {
+    if (!waveform || !waveform.regions) return;
+
+    Object.keys(waveform.regions.list).forEach(regionId => {
+        const region = waveform.regions.list[regionId];
+
+        // Check if the region's color matches one of the colors to remove
+        if (colorsToRemove.includes(region.color)) {
+            region.remove(); // Remove the region
+        }
+    });
+}
+
+
+// After done with generation, once reset, allows you to reset all fields back to default to generate again
 function clearExistingData() {
     //Clear out Fields
     const playPauseButton = document.getElementById("playPauseButton");
@@ -1675,1422 +2567,30 @@ function clearExistingData() {
 }
 
 
-document.addEventListener("DOMContentLoaded", function () {
-    document.addEventListener('wheel', function (event) {
-        // Check if the event occurred inside a scrollable container
-        const isScrollable = isInsideScrollableContainer(event);
-    
-        // Suppress horizontal navigation unless inside a scrollable container
-        if (!isScrollable && (event.deltaX < 0 || event.deltaX > 0)) {
-            // console.log("Preventing horizontal navigation");
-            event.preventDefault();
-        }
-    }, { passive: false });
-    
-    function isInsideScrollableContainer(event) {
-        let current = event.target;
-    
-        // Traverse up the DOM tree to check for scrollable containers
-        while (current) {
-            if (current.scrollWidth > current.clientWidth) {
-                // Ensure the container is still scrollable
-                const hasScrollRemaining =
-                    (current.scrollLeft > 0 && event.deltaX < 0) || // Scrolling left
-                    (current.scrollLeft < current.scrollWidth - current.clientWidth && event.deltaX > 0); // Scrolling right
-    
-                if (hasScrollRemaining) {
-                    // console.log("Scrollable container with space to scroll:", current);
-                    return true; // Found a valid scrollable container
-                }
-            }
-            current = current.parentElement;
-        }
-    
-        // console.log("No scrollable container found");
-        return false; // No valid scrollable container
-    }
-    
-    
-    window.addEventListener('popstate', function (event) {
-        // console.log("Pop state: " + event)
-        // Intercept the browser back action
-        const confirmation = confirm('Are you sure you want to leave this page?');
-    
-        if (!confirmation) {
-            // Prevent navigation to the previous page if the user cancels
-            history.pushState(null, '', window.location.href);
-        }
-    });
-    
-    // Optional: Adding a handler for any "beforeunload" to make sure the user is warned about navigating away
-    window.addEventListener('beforeunload', function (event) {
-        // console.log("unload: " + event)
-        const confirmationMessage = 'Are you sure you want to leave?';
-    
-        // Standard message for the browser confirmation dialog (varies by browser)
-        event.returnValue = confirmationMessage;
-    
-        // For modern browsers that support custom messages
-        return confirmationMessage;
-    });
-    // Define the processAudio function
-    const audioFileInput = document.getElementById('audioFile');
-    console.log("file: " + audioFileInput)
-    let fileSelected = false;
-    selectedFile = null;
-    
-    function validateApiKey() {
-        // Get the value of the API key field
-        const apiKey = document.getElementById("api_key").value;
-        const fileInput = document.getElementById("audioFile");
+//#------------------- HELPERS -------------------
+// Check how many jobs are being processed
+async function checkQueue() {
+    const response = await fetch('/get_queue_length');
+    const data = await response.json();
+    alert(`There are ${data.queue_length} jobs in the queue.`);
+}
+
+// Toggle display of helper function box up and down (show and hide)
+function toggleHelpers() {
+    const helperButtons = document.getElementById('helperButtons');
+    const toggleButton = document.getElementById('toggleHelpers');
+    if (helperButtons.style.display === 'flex') {
+        helperButtons.style.display = 'none';
+        toggleButton.textContent = 'Helper Functions ▼';
         
-        if (apiKey === '') {
-            alert("Please enter an API key");
-            fileInput.disabled = true;  // Disable file input
-        } else {
-            fileInput.disabled = false;  // Enable file input
-        }
-    }
-    
-    // Call this function when the API key input changes
-    document.getElementById("api_key").addEventListener("input", validateApiKey);
-
-    // Listen for the file selection event
-    audioFileInput.addEventListener('change', function (event) {
-        
-        console.log("Change audio file")
-        selectedFile = document.getElementById('audioFile').files[0];
-        console.log(selectedFile)
-        fileSelected = !!selectedFile; // Set to true if a file is selected
-        setTimeout(() => {
-            console.log(fileSelected, selectedFile)
-            if (fileSelected && selectedFile) {
-                clearExistingData();
-
-                processAudio();
-                const addButton = document.getElementById("addNewInterval");
-                const deleteButton = document.getElementById("deleteButton");
-                const nextButton = document.getElementById("next-transition");
-
-                addButton.style.display = "block";
-                deleteButton.style.display = "block";
-                nextButton.style.display = "block";
-
-
-                fileSelected = false; // Reset the flag for future selections
-            }
-        }, 0);
-    });
-
-    // Details Block functions
-
-    document.getElementById("toggleMotionButton").addEventListener("click", function () {
-        refreshTable();
-    });
-
-    const dropdownToggle = document.getElementById('dropdownToggle');
-    const detailsBox = document.getElementById('detailsBox');
-    const imageExamples = document.getElementById('image_examples');
-    const brainstormingBox = document.getElementById("brainstormingBox");
-
-    dropdownToggle.addEventListener('click', () => {
-        if (detailsBox.style.display === 'none' || detailsBox.style.display === '') {
-            detailsBox.style.display = 'block';
-            imageExamples.style.display = 'block';
-            brainstormingBox.style.display = 'block';
-            dropdownToggle.innerHTML = 'Hide Details ▲';
-        } else {
-            detailsBox.style.display = 'none';
-            imageExamples.style.display = 'none';
-            brainstormingBox.style.display = 'none';
-            dropdownToggle.innerHTML = 'Show Details ▼';
-        }
-    });
-
-    // HANDLE DROPDOWN LOGIC FOR INPUT BOXES
-    const handleDropdown = (inputId, dropdownId, dropdownButtonId) => {
-
-        const inputElement = document.getElementById(inputId);
-        const dropdown = document.getElementById(dropdownId);
-        const options = dropdown.querySelectorAll('li');
-        const dropdownButton = document.getElementById(dropdownButtonId);
-
-        // Function to show dropdown and highlight best match
-        const showDropdown = () => {
-            dropdown.style.display = 'block';
-            const inputValue = inputElement.value.toLowerCase();
-
-            let bestMatch = null;
-            let bestMatchIndex = -1;
-
-            options.forEach((option, index) => {
-                const optionValue = option.textContent.toLowerCase();
-                
-                if (optionValue.includes(inputValue)) {
-                    if (bestMatchIndex === -1 || optionValue.indexOf(inputValue) < bestMatch.indexOf(inputValue)) {
-                        bestMatch = optionValue;
-                        bestMatchIndex = index;
-                    }
-                }
-                
-            });
-
-            options.forEach((option, index) => {
-                if (option.textContent.toLowerCase() === bestMatch) {
-                    option.style.backgroundColor = '#e0e0e0'; // Highlight best match
-                    dropdown.scrollTop = options[bestMatchIndex].offsetTop - dropdown.offsetTop;
-                } else {
-                    option.style.backgroundColor = ''; // Remove highlight from others
-                }
-            });
-            
-            
-        };
-
-        // Show dropdown on input click
-        inputElement.addEventListener('focus', () => {
-            showDropdown();
-        });
-
-        // Show dropdown on typing and update matching
-        inputElement.addEventListener('input', () => {
-            showDropdown();
-        });
-
-        // Show dropdown when clicking the button
-        dropdownButton.addEventListener('click', () => {
-            if (dropdown.style.display === 'none') {
-                showDropdown();
-            } else {
-                dropdown.style.display = 'none';
-            }
-        });
-
-        // Select option from dropdown
-        dropdown.addEventListener('click', (e) => {
-            if (e.target.tagName === 'LI') {
-                inputElement.value = e.target.textContent;
-                dropdown.style.display = 'none'; // Hide dropdown after selection
-                if (inputId === "colorInput"){
-                    updateColorPickerFromInput();
-                }
-            }
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!inputElement.contains(e.target) && !dropdown.contains(e.target) && !dropdownButton.contains(e.target)) {
-                dropdown.style.display = 'none'; // Hide dropdown when clicking outside
-            }
-        });
-    };
-
-    // Initialize dropdown for both vibeInput and imageryInput
-    handleDropdown('vibeInput', 'vibeDropdown', 'dropdownButton');
-    handleDropdown('imageryInput', 'imageryDropdown', 'imageryDropdownButton');
-    handleDropdown('textureInput', 'textureDropdown', 'textureDropdownButton');
-    handleDropdown('colorInput', 'colorDropdown', 'colorDropdownButton');
-
-
-
-
-
-
-
-    // FOR IMAGES LOCATIONS
-    const baseURL = "https://raw.githubusercontent.com/Jiaxin-yyjx/SongAnalysis/refs/heads/main/images/";
-
-    // Handle imagery selection
-    const selectElement = document.getElementById("imagery-select");
-    const imageContainer = document.getElementById("image-container");
-
-    // Assuming these are your input fields for imagery and texture
-    const imageryInput = document.getElementById("imageryInput"); // Imagery input box
-    const textureInput = document.getElementById("textureInput"); // Texture input box
-
-    selectElement.addEventListener("change", (event) => {
-        const imagery = event.target.value;
-
-        // Clear the existing images
-        imageContainer.innerHTML = "";
-
-        // Add new images for the selected imagery
-        if (images[imagery]) {
-            images[imagery].forEach((filename) => {
-                // Create a container for the image and its texture name
-                const imgWrapper = document.createElement("div");
-                imgWrapper.classList.add("img-wrapper");
-
-                // Create the image element
-                const img = document.createElement("img");
-                img.src = `${baseURL}${filename}`; // Construct the GitHub URL
-                img.alt = filename.replace(/_/g, "-").replace(".webp", ""); // Alt text as a URL-friendly name
-                img.draggable = true; // Make the image draggable
-
-                // Extract the texture name dynamically
-                const textureName = filename
-                    .replace(imagery.replace(/ /g, "_"), "") // Remove the imagery key part
-                    .replace(/^_/, "") // Remove leading underscore
-                    .replace(/_output_\d+\.webp$/, "") // Remove output and index
-                    .replace(/_/g, " "); // Replace underscores with spaces
-
-                // Create a caption for the texture name
-                const caption = document.createElement("p");
-                caption.textContent = textureName.trim(); // Set the texture name as the caption
-                caption.classList.add("texture-caption");
-
-                // Add click event to update the input fields
-                img.addEventListener("click", () => {
-                    // console.log(imagery, textureName)
-                    imageryInput.value = imagery.replace('_', ' '); // Set the imagery value
-                    textureInput.value = textureName.trim(); // Set the texture value
-                });
-
-                // Append the image and caption to the wrapper
-                imgWrapper.appendChild(img);
-                imgWrapper.appendChild(caption);
-
-                // Append the wrapper to the container
-                imageContainer.appendChild(imgWrapper);
-            });
-        }
-    });
-});
-
-let playPauseClickHandler;
-function playpauseControl(playPauseButton) {
-
-    if (playPauseClickHandler) {
-        playPauseButton.removeEventListener('click', playPauseClickHandler);
-    }
-
-    // Define the click handler
-    playPauseClickHandler = () => {
-        if (waveform.isPlaying()) {
-            playPauseButton.innerHTML = '▶';
-            waveform.pause();
-        } else {
-            playPauseButton.innerHTML = '⏸';
-            waveform.play();
-        }
-    };
-
-    // Attach the click handler
-    playPauseButton.addEventListener('click', playPauseClickHandler);
-    waveform.on('finish', () => {
-        playPauseButton.innerHTML = '▶';
-    });
-
-    document.addEventListener('keydown', (event) => {
-        if (event.key === ' ' && (document.activeElement === waveform.container || waveform.isPlaying())) {
-            event.preventDefault(); // Prevent page scrolling when space is pressed
-            togglePlayPause();
-        }
-    });
-}
-
-function togglePlayPause() {
-    if (waveform.isPlaying()) {
-        playPauseButton.innerHTML = '▶';
-        waveform.pause();
     } else {
-        playPauseButton.innerHTML = '⏸';
-        waveform.play();
+        helperButtons.style.display = 'flex';
+        toggleButton.textContent = 'Helper Functions ▲';
     }
 }
 
-// Example zoom application (replace with your actual zooming logic)
-function applyZoom(zoomLevel) {
-    if (waveform) {
-        // Adjust the waveform zoom level
-        waveform.zoom(zoomLevel);
-
-        // Get all regions
-        const allRegions = Object.values(waveform.regions.list);
-
-        // Adjust the width of green bars based on the zoom level
-        allRegions.forEach(region => {
-            if (region.color === 'green') {
-                // Adjust thickness based on zoom level with a max size of 0.5
-                let newWidth = 0.25 / (zoomLevel / 100);
-
-                // Ensure the width doesn't exceed 0.25 when zooming out
-                if (newWidth > 0.25) {
-                    newWidth = 0.25;
-                }
-
-                // Update the region width
-                region.update({ start: region.start, end: region.start + newWidth });
-            }
-        });
-    }
-}
-
-function audioZoom() {
-    const zoomOutButton = document.getElementById('zoomOut');
-    const zoomInButton = document.getElementById('zoomIn');
-    const zoomLevelDisplay = document.getElementById('zoomLevel');
-    const zoomControl = document.getElementById('zoomControl');
-    let zoomLevel = 0;
-
-    // Zoom limits
-    const zoomMin = 0;
-    const zoomMax = 400;
-    const zoomStep = 50;
-
-
-
-    function updateZoomLevel(newZoomLevel) {
-        zoomLevel = Math.max(zoomMin, Math.min(zoomMax, newZoomLevel)); // Ensure within bounds
-        zoomLevelDisplay.textContent = zoomLevel;
-        applyZoom(zoomLevel);
-    }
-
-    zoomOutButton.addEventListener('click', () => updateZoomLevel(zoomLevel - zoomStep));
-    zoomInButton.addEventListener('click', () => updateZoomLevel(zoomLevel + zoomStep));
-
-    zoomControl.style = "display: flex; align-items: center; gap: 10px;";
-
-}
-
-function processAudio() {
-    
-    tablemade = false;
-    const fileInput = document.getElementById('audioFile');
-    const play_button = document.getElementById("playPauseButton")
-    const play_start_button = document.getElementById("playStartButton");
-    const play_buttons_box = document.getElementById("playbuttons");
-    // const slider = document.getElementById("slider")
-    const loadingIndicator = document.getElementById("loadingIndicator");
-    const loadState = document.getElementById("loadState");
-    // const saveState = document.getElementById("saveState");
-    audioZoom(); // Function to set all the zooom stuff up
-
-
-
-    play_button.style.display = "block";
-    play_start_button.style.display = "block";
-    play_buttons_box.style.display = "flex"
-    loadingIndicator.style.display = "block";
-    loadState.style.display = "block";
-    // saveState.style.display = "block";
-
-    // const clearButton = document.getElementById('clearButton');
-
-    // clearButton.click(); // Ensure clear button is clicked before processing
-    if (fileInput.files.length === 0) {
-        alert("Please select an audio file first.");
-        return;
-    }
-
-    // const formData = new FormData();
-    // formData.append('audioFile', fileInput.files[0]);
-    audioData = new FormData();
-    audioData.append('audioFile', fileInput.files[0]);
-    
-
-    fetch('/upload_audio', {
-        method: 'POST',
-        body: audioData
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const audioUrl = URL.createObjectURL(fileInput.files[0]);
-
-                if (waveform) {
-                    // If there's already a waveform
-                    if (waveform.regions) {
-                        waveform.clearRegions();
-                    }
-
-                    waveform.unAll();
-
-                    waveform.load(audioUrl);
-
-                } else {
-                    // Create a new WaveSurfer instance
-                    waveform = WaveSurfer.create({
-                        container: '#waveform',
-                        height: 256,
-                        waveColor: 'rgb(200, 0, 200)',
-                        progressColor: 'rgb(100, 0, 100)',
-                        plugins: [
-                            WaveSurfer.regions.create() // Initialize the Regions plugin
-                        ],
-                    });
-
-                    // Load the audio URL
-                    waveform.load(audioUrl);
-
-
-                    // console.log("New WaveSurfer instance created and audio loaded: ", audioUrl);
-                }
-
-                play_start_button.addEventListener('click', () => {
-                    if (waveform) {
-                        // console.log("clicked")
-                        waveform.play(0); // Start playback from the beginning (time = 0)
-                        playPauseButton.innerHTML = '⏸';
-                    }
-                });
-
-                waveform.on('error', (error) => {
-                    console.error('WaveSurfer Error: ', error);
-                });
-
-                let beats_time = [];
-
-                data.top_onset_times.forEach(beat => {
-                    beats_time.push(beat.time);
-                });
-
-                // Draw the fetched lowEnergyBeats
-                let lowEnergyBeatTimes = [];
-                data.low_energy_timestamps.forEach(beats => {
-                    lowEnergyBeatTimes.push(beats.time);
-                });
-
-                // Set up regions and markers after the waveform is ready
-                waveform.on('ready', () => {
-                    // console.log("Waveform is ready.");
-                    setupRegions(waveform, lowEnergyBeatTimes, 'Low Energy Beat', 'red', 0.01, false);
-                    setupRegions(waveform, beats_time, 'Beats', 'blue', 0.01, false);
-                    // Event listener for clicking a region
-                    waveform.on('region-click', (region) => {
-                        const currentTime = waveform.getCurrentTime();
-                        if (currentTime >= region.start && currentTime <= region.end) {
-                            waveform.play(region.start); // Play from the marker start
-                        }
-                        // console.log("TIME: ", currentTime);
-                    });
-
-
-
-                    waveform.on('region-update-end', (region) => {
-                        // console.log("Region dragging ended");
-
-                        // Get all regions from the waveform
-                        const allRegions = Object.values(waveform.regions.list); // Fetch all regions as an array
-
-                        // Filter for regions that are green
-                        const greenRegions = allRegions.filter(r => r.color === 'green');
-
-                        // Update newsigPoints based on green regions' start times
-                        newsigPoints = greenRegions.map(r => r.start);
-
-                        // console.log("Updated newsigPoints:", newsigPoints);
-                    });
-
-                });
-
-                // Play/Pause control
-                const playPauseButton = document.getElementById('playPauseButton');
-                playpauseControl(playPauseButton);
-
-                document.getElementById('outputContainer').textContent = JSON.stringify(data.output, null, 2);
-                lowEnergyBeats = data.low_energy_timestamps; // Update the global variable
-                audioDuration = data.duration;
-
-                // console.log("sig pts: ", newsigPoints);
-                significantPoints = findSignificantPoints(data.aligned_onsets, lowEnergyBeats, audioDuration);
-                significantPoints.sort((a, b) => a - b);
-                if (newsigPoints.length == 0) {
-                    //no sig pts have been identified yet
-                    newsigPoints = [...significantPoints]
-                    newsigPoints.sort((a, b) => a - b);
-                    // console.log("SIG POINTS: " + significantPoints);
-
-                }
-                else if (significantPoints[0] != newsigPoints[0] || significantPoints.length != newsigPoints.length) {
-                    //new song loaded
-                    newsigPoints = [...significantPoints]
-                    newsigPoints.sort((a, b) => a - b);
-
-                } else {
-                    //same song is loaded
-                    newsigPoints.sort((a, b) => a - b);
-
-                }
-                setupRegions(waveform, newsigPoints, 'Significant Points', 'green', 0.25, true);
-                waveform.on('region-drag', (region) => {
-                    console.log('Region dragged to', region.start); // Log new start time
-                });
-
-
-
-            } else {
-                document.getElementById('outputContainer').textContent = 'Error: ' + data.error;
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            document.getElementById('outputContainer').textContent = 'Failed to fetch data.';
-        })
-        .finally(() => {
-            // Hide loading indicator after completion
-            loadingIndicator.style.display = "none";
-        });
-}
-
-
-function setupRegions(waveform, data, content, color, size, drag, resize = false) {
-    data.forEach(beat => {
-        // Create a region with optional drag and resize capabilities
-        const region = waveform.addRegion({
-            start: beat,
-            end: beat + size,  // Duration of the region
-            color: color, // Color for the region
-            content: content, // Label content for the region
-            drag: drag, // Allow dragging
-            resize: resize, // Allow resizing from both sides
-        });
-        if (color == 'green') {
-            region.element.style.zIndex = 100;
-            region.on('update-end', () => refreshTable("form"));
-            region.on('remove', () => refreshTable("form"));
-            // console.log("add green region")
-        }
-
-        // Add labels for Significant Points regions (as before)
-        if (content === "Significant Points") {
-            const label = document.createElement('span');
-            label.className = 'region-label';
-            label.innerText = region.start.toFixed(2); // Display the start time rounded to 2 decimals
-            label.style.position = 'absolute';
-            label.style.color = 'black';
-            label.style.fontSize = '12px';
-            label.style.background = 'rgba(255, 255, 255, 0.7)';
-            label.style.padding = '2px';
-            label.style.borderRadius = '3px';
-
-            region.element.appendChild(label);
-
-            region.on('update', () => {
-                label.innerText = region.start.toFixed(2); // Update the label's text
-            });
-
-            region.on('update-end', () => {
-                label.style.left = `${region.element.getBoundingClientRect().width / 2 - label.clientWidth / 2}px`;
-                label.innerText = region.start.toFixed(2); // Update the label's text after dragging ends
-            });
-        }
-
-        // Special handling for transitions (make sure these are draggable and resizable)
-        if (content === "Transition") {
-            console.log("Transition region created at", region.start, "with size", size);
-
-            // Add an event listener to handle resizing (if needed)
-            region.on('resize', () => {
-                console.log("Region resized: Start =", region.start, "End =", region.end);
-            });
-
-            // Update visual representation during dragging or resizing
-            region.on('update-end', () => {
-                console.log("Region updated: Start =", region.start, "End =", region.end);
-            });
-        }
-    });
-}
-
-
-function filterClosePoints(points, maxGap) {
-    const sortedPoints = points.slice().sort((a, b) => a - b);
-    const filtered = [sortedPoints[0]]; // Start with the first point
-
-    for (let i = 1; i < sortedPoints.length; i++) {
-        if (sortedPoints[i] - filtered[filtered.length - 1] > maxGap) {
-            filtered.push(sortedPoints[i]);
-        }
-    }
-
-    return filtered;
-}
-
-function findSignificantPoints(beats, lowEnergyBeats, songDuration) {
-    // console.log("find sig");
-
-    // Step 1: Combine beats and lowEnergyBeats with metadata
-    const combined = [];
-
-    beats.forEach(point => combined.push({ time: point.time, source: 'beat', strength: point.strength }));
-    lowEnergyBeats.forEach(point => combined.push({ time: point.time, source: 'lowEnergy', strength: point.strength }));
-
-    // Step 2: Sort combined array by time
-    combined.sort((a, b) => a.time - b.time);
-
-    // Exclude points too close to the beginning or end
-    const excludedPoints = combined.filter(point =>
-        point.time > 3 && point.time < (songDuration - 3)
-    );
-
-    // Step 3: Selecting points
-    const finalPoints = [];
-    const desiredCount = Math.ceil(songDuration / 4);
-    const minGap = 3.7; // Minimum gap between selected points
-
-    let lastSelectedTime = -minGap; // Initialize to a negative value
-
-    excludedPoints.forEach(point => {
-        if (point.time - lastSelectedTime >= minGap) {
-            // Check for strong nearby points (within 1.5 seconds)
-            const nearbyPoints = excludedPoints.filter(p =>
-                Math.abs(p.time - point.time) <= 1.5
-            );
-
-            if (nearbyPoints.length > 0) {
-                // Select the strongest point from nearby candidates
-                const strongestPoint = nearbyPoints.reduce((prev, curr) => {
-                    return (curr.strength > prev.strength) ? curr : prev;
-                });
-
-                // Add the strongest point's time
-                finalPoints.push(strongestPoint.time);
-                lastSelectedTime = strongestPoint.time; // Update the last selected time
-            }
-        }
-    });
-
-    // Ensure the final points are unique
-    let uniqueFinalPoints = [...new Set(finalPoints)];
-    // console.log("unique: ", uniqueFinalPoints);
-
-    // Step 4: Remove any points where the gap between consecutive points is shorter than 3 seconds (except the final point)
-    uniqueFinalPoints = uniqueFinalPoints.filter((point, index, array) => {
-        if (index === array.length - 1) {
-            return true; // Always keep the final point
-        }
-        return (array[index + 1] - point >= 3); // Keep if the gap to the next point is >= 3 seconds
-    });
-
-    // console.log("Filtered points (gap >= 3): ", uniqueFinalPoints);
-
-    // Step 5: If we have more than the desired count, slice to desired count
-    if (uniqueFinalPoints.length > desiredCount) {
-        // console.log("more");
-        return uniqueFinalPoints.slice(0, desiredCount);
-    } else {
-        // console.log("less");
-        // Otherwise, insert additional points if needed
-        return insertAdditionalPoints(uniqueFinalPoints, combined, beats, lowEnergyBeats, desiredCount, songDuration);
-    }
-}
-
-
-function insertAdditionalPoints(finalPoints, allPoints, beats, lowEnergyBeats, desiredCount, songDuration) {
-    // console.log("insert");
-
-    const newPoints = [...finalPoints];
-    newPoints.sort((a, b) => a - b);
-    const minGap = 4;
-    const endGapThreshold = 6;  // minimum gap of 3 seconds between last point and total song duration
-
-    let loopCounter = 0; // Counter to prevent infinite loops
-    const maxLoops = 15; // Maximum number of iterations to prevent infinite loops
-
-    while (newPoints.length < desiredCount && loopCounter < maxLoops) {
-        loopCounter++; // Increment the loop counter
-
-        const gaps = [];
-
-        // Include the start of the song as a gap
-        if (newPoints.length === 0 || newPoints[0] > 0) {
-            gaps.push({ start: 0, end: newPoints[0] || songDuration, gap: newPoints[0] || songDuration });
-        }
-
-        for (let i = 0; i < newPoints.length - 1; i++) {
-            const start = newPoints[i];
-            const end = newPoints[i + 1];
-            gaps.push({ start, end, gap: end - start });
-        }
-
-        // Include the end of the song as a gap
-        const lastPoint = newPoints[newPoints.length - 1] || 0;
-        const remainingGap = songDuration - lastPoint;
-
-        if (remainingGap >= endGapThreshold) {
-            gaps.push({ start: lastPoint, end: songDuration, gap: remainingGap });
-        }
-
-        const maxGapObj = gaps.reduce((max, gap) => gap.gap > max.gap ? gap : max, { gap: 0 });
-
-        if (maxGapObj.gap >= minGap) {
-            const midPoint = (maxGapObj.start + maxGapObj.end) / 2;
-            const nearbyPoints = allPoints.filter(p => p.time >= maxGapObj.start && p.time <= maxGapObj.end);
-            // console.log("nearby: " + nearbyPoints);
-            // Try to align with lowEnergy or beat points
-            const candidates = nearbyPoints.filter(p => Math.abs(p.time - midPoint) <= 2);
-            // console.log("candiates: " + candidates)
-            if (candidates.length > 0) {
-                const chosenPoint = candidates.reduce((prev, curr) => (curr.strength > prev.strength) ? curr : prev);
-                if (!newPoints.includes(chosenPoint.time) && (newPoints.length === 0 || chosenPoint.time - newPoints[newPoints.length - 1] >= minGap)) {
-                    newPoints.push(chosenPoint.time);
-                }
-            }
-        } else {
-            // Break if there are no more gaps large enough to insert
-            break;
-        }
-
-        // Sort again to find new gaps
-        newPoints.sort((a, b) => a - b);
-    }
-
-    // Handle final point placement logic if needed
-    if (songDuration - newPoints[newPoints.length - 1] >= 5) {
-        // Find a strong beat or lowEnergy beat within this range
-        const candidates = allPoints.filter(p => p.time >= (songDuration - 4) && p.time <= (songDuration - 1.5));
-        // console.log("candidates: ", candidates);
-        if (candidates.length > 0) {
-            const chosenFinalPoint = candidates.reduce((prev, curr) => (curr.strength > prev.strength) ? curr : prev);
-            // console.log("chosen final point: ", chosenFinalPoint)
-            if (!newPoints.includes(chosenFinalPoint.time)) {
-                newPoints.push(chosenFinalPoint.time);
-            }
-        }
-    }
-
-    return [...new Set(newPoints)].slice(0, desiredCount);
-}
-
-
-
-function updateNewsigPoints() {
-    // Clear newsigPoints and update based on current label values
-    newsigPoints = [];
-    const labels = document.querySelectorAll('.time-label');
-    labels.forEach(label => {
-        newsigPoints.push(parseFloat(label.value));
-    });
-    newsigPoints.sort((a, b) => a - b); // Sort the points in ascending order
-}
-
-function createBeat(beatTime, beatContainer, duration, color, isHidden = false, isNew = false) {
-    const beatLine = document.createElement('div');
-    beatLine.className = 'beat';
-    beatLine.style.left = `${(beatTime / duration) * beatContainer.offsetWidth}px`;
-    beatLine.style.height = '100%';
-    beatLine.style.width = isNew ? '4px' : '2px'; // Thicker line for new intervals
-    beatLine.style.position = 'absolute';
-    beatLine.style.backgroundColor = isNew ? 'red' : color;
-    if (isHidden) {
-        beatLine.style.display = 'none';
-        beatLine.classList.add('hidden-beat');
-        const timeLabel = document.createElement('input');
-        timeLabel.type = 'text';
-        timeLabel.className = 'time-label';
-        timeLabel.value = beatTime.toFixed(2);
-        timeLabel.style.position = 'absolute';
-        timeLabel.style.top = '0';
-        timeLabel.style.left = `${(beatTime / duration) * beatContainer.offsetWidth}px`;
-        timeLabel.style.transform = 'translateX(-50%)';
-        timeLabel.style.backgroundColor = isNew ? 'green' : '';
-
-        beatLine.timeLabel = timeLabel;
-
-        // Event listener for clicking on the time label
-        timeLabel.addEventListener('click', function () {
-            if (lastClickedLabel === timeLabel) {
-                lastClickedLabel.style.borderColor = '';
-                timeLabel.style.borderColor = 'red';
-                lastClickedLabel = timeLabel;
-            }
-            timeLabel.style.zIndex = '1000';
-            if (lastClickedLabel) {
-                lastClickedLabel.style.borderColor = ''; // Deselect previous label
-            }
-            // lastClickedLabel = timeLabel; // Update lastClickedLabel
-            // timeLabel.style.borderColor = 'red'; // Highlight selected label
-        });
-
-        timeLabel.addEventListener('input', function () {
-            const newTime = parseFloat(timeLabel.value);
-            if (!isNaN(newTime) && newTime >= 0 && newTime <= duration) {
-                beatLine.style.left = `${(newTime / duration) * beatContainer.offsetWidth}px`;
-                timeLabel.style.left = `${(newTime / duration) * beatContainer.offsetWidth}px`;
-                timeLabel.style.zIndex = '1000';
-
-                updateNewsigPoints();
-                // newsigPoints[index] = newTime;
-            }
-        });
-
-        // Attach the click event listener directly to the hidden beat
-        beatLine.addEventListener('click', function () {
-            if (lastClickedLabel) {
-                lastClickedLabel.style.borderColor = ''; // Deselect previous label
-            }
-            lastClickedLabel = beatLine.timeLabel; // Update lastClickedLabel to the hidden beat's time label
-            beatLine.timeLabel.style.borderColor = 'red'; // Highlight selected label
-            beatLine.timeLabel.style.zIndex = '1000';
-        });
-
-        // Handle dragging of the beat line
-        beatLine.addEventListener('mousedown', function () {
-            timeLabel.style.backgroundColor = ''; // Remove green background on drag
-            beatLine.style.backgroundColor = 'green'; // Return to normal color
-            beatLine.style.width = '2px'; // Return to normal thickness
-            beatLine.timeLabel.style.zIndex = '1000';
-
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-        });
-
-        function onMouseMove(event) {
-            const rect = beatContainer.getBoundingClientRect();
-            const offsetX = event.clientX - rect.left;
-            const percentage = offsetX / rect.width;
-            const newTime = percentage * duration;
-
-            if (!isNaN(newTime) && newTime >= 0 && newTime <= duration) {
-                beatLine.style.left = `${(newTime / duration) * beatContainer.offsetWidth}px`;
-                timeLabel.style.left = `${(newTime / duration) * beatContainer.offsetWidth}px`;
-                timeLabel.value = newTime.toFixed(2);
-                timeLabel.style.backgroundColor = 'green';
-            }
-        }
-
-        function onMouseUp() {
-            timeLabel.style.backgroundColor = ''; // Reset background color
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-            updateNewsigPoints(); // Update newsigPoints after drag is completed
-        }
-
-        // Append the elements to the container
-
-        beatContainer.appendChild(timeLabel);
-
-        // Initially show the hidden beat if new interval
-        if (isNew) {
-            beatLine.style.display = 'block';
-            newsigPoints.push(beatTime);
-            updateNewsigPoints(); // Ensure newsigPoints is updated with new beat
-        }
-
-        document.getElementById('deleteButton').addEventListener('click', function () {
-
-            if (lastClickedLabel) {
-                const index = Array.from(beatContainer.children).indexOf(lastClickedLabel);
-                if (index !== -1) {
-                    newsigPoints.splice(index, 1); // Remove the corresponding time from newsigPoints
-                    lastClickedLabel.remove(); // Remove the label from the DOM
-                    beatContainer.children[index].remove(); // Remove the corresponding beat line
-                    lastClickedLabel = null; // Reset lastClickedLabel
-                    updateNewsigPoints();
-                }
-            }
-
-
-        });
-    }
-
-    beatContainer.appendChild(beatLine);
-}
-
-function drawBeats(beats, beatContainer, duration, color, hidden = false) {
-    clearPreviousTimestamps();
-    newsigPoints = [...beats];
-
-    beats.forEach((beat) => {
-        createBeat(beat, beatContainer, duration, color, hidden);
-    });
-}
-
-function addNewInterval() {
-    const cursorTime = waveform.getCurrentTime();
-    data = [cursorTime]
-    newsigPoints = [data[0], ...newsigPoints];
-    const index = newsigPoints.sort((a, b) => a - b).indexOf(data[0]);
-
-    newsigPoints = newsigPoints.sort((a, b) => a - b);
-    setupRegions(waveform, data, "Significant Points", 'green', 0.25, true);
-    refreshTable("form");
-
-}
-
-function delete_intervals() {
-    // Toggle delete mode on/off when the function is called
-    deleteMode = !deleteMode;
-
-    const deleteButton = document.getElementById('deleteButton');
-
-    if (deleteMode) {
-        // console.log("Delete mode enabled. Click on a region to delete it.");
-
-        // Update the button style to reflect the active delete mode
-        deleteButton.textContent = "Exit Delete Mode";
-        deleteButton.style.backgroundColor = "red";
-        deleteButton.style.color = "white";
-
-        // Add a hover effect and region click event listener
-        Object.values(waveform.regions.list).forEach(region => {
-            if (region.color === 'green') {
-                // Add hover effect to highlight in red
-                region.element.addEventListener('mouseenter', () => {
-                    if (deleteMode) {
-                        region.update({ color: 'red' });
-                    }
-                });
-                region.element.addEventListener('mouseleave', () => {
-                    if (deleteMode) {
-                        region.update({ color: 'green' });
-                    }
-                });
-            }
-        });
-
-        // Add the event listener for region click
-        waveform.on('region-click', (region, e) => {
-            e.stopPropagation(); // Prevent any other action from triggering
-
-            // Only delete if the region is a green significant point
-            if (region.color === 'red') { // After hover, region will be red
-                // Remove the region from the waveform
-                region.remove();
-
-                // Update the newsigPoints array by filtering out the deleted region
-                console.log("reg start: ", region.start)
-                let deletedTimeIndex = 0;
-                for (let i = 0; i < newsigPoints.length; i++) {
-                    if (region.start < newsigPoints[i]) {
-                        deletedTimeIndex = i;
-                        break;
-                    } else {
-                        deletedTimeIndex = newsigPoints.length; // If region.start is greater than all elements, it will be at the end
-                    }
-                }
-                newsigPoints = newsigPoints.filter(time => time !== region.start);
-                delete existingValues[deletedTimeIndex];
-                if (deletedTimeIndex === 0) {
-
-                }
-
-                refreshTable("form")
-            } else {
-                console.log("Clicked on a non-deletable region. No action taken.");
-            }
-        });
-    } else {
-        // Restore the button to its original state
-        deleteButton.textContent = "Delete Intervals";
-        deleteButton.style.backgroundColor = "";
-        deleteButton.style.color = "";
-
-        // Remove the hover and click event listeners when delete mode is off
-        Object.values(waveform.regions.list).forEach(region => {
-            if (region.color === 'green' || region.color === 'red') {
-                region.element.removeEventListener('mouseenter', null);
-                region.element.removeEventListener('mouseleave', null);
-            }
-        });
-
-        waveform.un('region-click'); // Remove the region click listener when delete mode is off
-    }
-}
-
-function addDefaultTransitions() {
-    const allRegions = Object.values(waveform.regions.list);
-    const greenRegions = allRegions.filter(region => region.color === 'green');
-    let transitionRegions = [];
-    let overlapDetected = false;
-
-    // Create 1 sec transition around interval start time
-    greenRegions.forEach(region => {
-        const startTime = region.start;
-
-        const transitionStart = Math.max(0, startTime - 0.5); // Ensure start time is not negative
-        const transitionEnd = startTime + 0.5;
-
-        transitionRegions.push({ start: transitionStart, end: transitionEnd });
-    });
-
-    // Sort regions by start time for easier overlap resolution
-    transitionRegions.sort((a, b) => a.start - b.start);
-
-    const waveformDuration = waveform.getDuration();
-
-    if (transitionRegions.length > 0) {
-        const lastTransitionEnd = transitionRegions[transitionRegions.length - 1].end;
-
-        // Check for overlap with waveform duration
-        if (lastTransitionEnd >= waveformDuration - 1.5) {
-            // Align final transition
-            transitionRegions.push({ start: lastTransitionEnd, end: waveformDuration });
-        } else {
-            // Final transition of 2 seconds capped at the waveform's duration
-            const finalStart = waveformDuration - 1.5;
-            transitionRegions.push({ start: finalStart, end: waveformDuration });
-        }
-    } else {
-        // If no transitions, add a final transition from 2 seconds before the end
-        transitionRegions.push({ start: waveformDuration - 1.5, end: waveformDuration });
-    }
-
-    // Resolve overlaps by shifting overlapping regions
-    for (let i = 0; i < transitionRegions.length - 1; i++) {
-        const current = transitionRegions[i];
-        const next = transitionRegions[i + 1];
-        
-
-        // If there's an overlap, shift the next region's start and end by 0.01
-        if (current.end > next.start) {
-            overlapDetected = true;
-            const shiftAmount = 0.01;
-            const overlap = current.end - next.start + shiftAmount;
-
-            next.start += overlap;
-            next.end += overlap;
-
-            // Ensure the shifted region doesn't exceed waveform duration
-            if (next.end > waveformDuration) {
-                next.end = waveformDuration;
-                next.start = Math.max(next.start, waveformDuration - 2); // Adjust start if needed
-            }
-        }
-        
-    }
-
-    // Add the regions to the waveform
-    transitionRegions.forEach(region => {
-        const reg = waveform.addRegion({
-            start: region.start,
-            end: region.end,
-            color: 'rgba(255, 165, 0, 0.5)',
-            drag: true,
-            resize: true,
-        });
-        reg.on('update-end', () => refreshTable("none"));
-        reg.on('remove', () => refreshTable("none"));
-    });
-    if (overlapDetected) {
-        alert("Warning: Some intervals too close. Transition sections were shifted to prevent overlap. This may result in different outputs than expected. Try to ensure a 3+ second gap between intervals.");
-    }
-
-    console.log("Added transitions (after resolving overlaps):", transitionRegions);
-}
-
-function addTransitionRegions() {
-    const waveformDuration = waveform.getDuration();
-    const cursorTime = waveform.getCurrentTime(); // Get the current cursor position
-    let regionStart = parseFloat((cursorTime - 0.5).toFixed(2));
-    let regionEnd = parseFloat((cursorTime + 0.5).toFixed(2));
-    
-    if (regionStart < 0) {
-        regionStart = 0;
-    }
-    if (regionEnd > waveformDuration) {
-        regionEnd = waveformDuration;
-    }
-
-    const orangeRegions = [];
-    Object.values(waveform.regions.list).forEach((region) => {
-        if (region.color === 'rgba(255, 165, 0, 0.5)') { // Check for orange regions
-            orangeRegions.push({ start: region.start, end: region.end });
-        }
-    });
-
-    // Check for overlapping regions
-    const overlappingRegions = [];
-    orangeRegions.forEach(({ start: existingStart, end: existingEnd }) => {
-        if (regionStart < existingEnd && regionEnd > existingStart) { // Overlapping condition
-            overlappingRegions.push({ existingStart, existingEnd });
-        }
-    });
-
-    // Resolve overlaps
-    overlappingRegions.forEach(({ key, existingStart, existingEnd }) => {
-        if (regionStart < existingStart && regionEnd > existingStart) {
-            // Adjust new region to end before the overlapping region starts
-            regionEnd = existingStart - 0.01;
-        } else if (regionStart < existingEnd && regionEnd > existingEnd) {
-            // Adjust new region to start after the overlapping region ends
-            regionStart = existingEnd + 0.01;
-        } else if (regionStart >= existingStart && regionEnd <= existingEnd) {
-            // If fully contained, adjust new region to not overlap
-            regionStart = existingEnd + 0.01;
-            alert("Cannot overlap regions. Shifted to nearest valid location.")
-        }
-        // Update the overlapping region to prevent further conflicts
-        existingTransitionValues[key] = [existingStart, existingEnd];
-    });
-
-    // Ensure the new region is valid after adjustments
-    if (regionStart >= regionEnd) {
-        console.log("Cannot add region: resulting start/end times are invalid.");
-        return;
-    }
-
-    // Add the new region
-    const reg = waveform.addRegion({
-        start: regionStart,
-        end: regionEnd,
-        color: 'rgba(255, 165, 0, 0.5)',
-        drag: true,
-        resize: true,
-    });
-
-    // Event listeners for updates
-    reg.on('update-end', () => refreshTable("trans"));
-    reg.on('remove', () => refreshTable("trans"));
-
-    // Add the new region to existingTransitionValues
-    const newRegionKey = Object.keys(existingTransitionValues).length;
-    existingTransitionValues[newRegionKey] = [regionStart, regionEnd];
-
-    console.log(`Added transition region at: ${regionStart} to ${regionEnd}`);
-    refreshTable("trans");
-
-}
-
-
-function delete_transitions() {
-    // Toggle delete mode for transitions
-    deleteModeT = !deleteModeT;
-
-    const deleteButton = document.getElementById('deleteTransitionButton'); // Assuming a separate button for deleting transitions
-
-    if (deleteModeT) {
-        console.log("Transition delete mode enabled. Click on an orange transition to delete it.");
-
-        // Update the button style to reflect the active delete mode
-        deleteButton.textContent = "Exit Transition Delete Mode";
-        deleteButton.style.backgroundColor = "red";
-        deleteButton.style.color = "white";
-
-        // Add hover effect and region click event listener
-        Object.values(waveform.regions.list).forEach(region => {
-            // console.log("hello");
-            if (region.color === 'rgba(255, 165, 0, 0.5)') { // Focus on orange-colored transitions
-                // Add hover effect to highlight in red
-                region.element.addEventListener('mouseenter', () => {
-                    if (deleteModeT) {
-                        region.update({ color: 'rgba(255, 0, 0, 0.5)' }); // Temporarily change to red
-                    }
-                });
-                region.element.addEventListener('mouseleave', () => {
-                    if (deleteModeT) {
-                        region.update({ color: 'rgba(255, 165, 0, 0.5)' }); // Revert to orange
-                    }
-                });
-            }
-        });
-
-        waveform.on('region-click', (region, e) => {
-            e.stopPropagation(); // Prevent other actions from triggering
-
-            if (region.color === 'rgba(255, 0, 0, 0.5)') {
-                // Remove the region from the waveform
-                region.remove();
-                refreshTable("trans");
-
-                // console.log("Deleted transition region:", region);
-            } else {
-                console.log("Clicked on a non-deletable region. No action taken.");
-            }
-        });
-
-    } else {
-        console.log("Transition delete mode disabled.");
-
-        // Restore the button to its original state
-        deleteButton.textContent = "Delete Transitions";
-        deleteButton.style.backgroundColor = "";
-        deleteButton.style.color = "";
-
-        // Remove the hover and click event listeners when delete mode is off
-        Object.values(waveform.regions.list).forEach(region => {
-            if (region.color === 'rgba(255, 165, 0, 0.5)' || region.color === 'rgba(255, 0, 0, 0.5)') {
-                region.element.removeEventListener('mouseenter', null);
-                region.element.removeEventListener('mouseleave', null);
-            }
-        });
-
-        waveform.un('region-click'); // Remove the region click listener when delete mode is off
-    }
-}
-
-
-
-function refreshTable(new_type, transitionData = {}) {
-    if(new_type == "load"){
-        return
-    }
-    if (tablemade) {
-
-        const allRegions = Object.values(waveform.regions.list);
-
-        let greenRegions = allRegions.filter(region => region.color === 'green').sort((a, b) => a.start - b.start);
-        let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)').sort((a, b) => a.start - b.start);
-
-        newsigPoints = greenRegions.map(region => region.start);
-
-        let newRegionIndex_trans = 't';
-        let newRegionIndex_form = 'f';
-
-        if (new_type === "trans") {
-
-            newRegionIndex_trans = handleRegionChanges(orangeRegions, updatedOrangeRegions, existingTransitionValues, "trans");
-            added = false;
-
-            updatedOrangeRegions = orangeRegions;
-        } else if (new_type === "form") {
-            console.log("DATA")
-
-            newRegionIndex_form = handleRegionChanges(greenRegions, updatedGreenRegions, existingValues, "form");
-            updatedGreenRegions = greenRegions;
-        }
-
-        if(new_type == "2D" || new_type == "3D"){
-            finalizeTimestamps(new_type, newRegionIndex_form, newRegionIndex_trans,transitionData);
-        }else{
-            const audioDuration = waveform.getDuration();
-            finalizeTimestamps("time", newRegionIndex_form, newRegionIndex_trans, transitionData);
-        }
-    }
-}
-
-function handleRegionChanges(currentRegions, updatedRegions, valuesDict, type) {
-    // Find added or removed regions by comparing current with updated
-
-    const mismatchedRegions = currentRegions.filter(region => {
-        return !updatedRegions.some(updatedRegion =>
-            updatedRegion.start.toFixed(2) === region.start.toFixed(2) && updatedRegion.end.toFixed(2) === region.end.toFixed(2)
-        );
-    });
-
-    const mismatchedRegionsOther = updatedRegions.filter(region => {
-        return !currentRegions.some(currentRegion =>
-            currentRegion.start.toFixed(2) === region.start.toFixed(2) && currentRegion.end.toFixed(2) === region.end.toFixed(2)
-        );
-    });
-    console.log("size current: ", currentRegions.length)
-    currentRegions.forEach((region, index) => {
-        const start = region.start;
-        const end = region.end;
-
-        // Check if existingTransitionValues is defined
-        console.log("current times:", index, start, end);
-    });
-
-    console.log("size old: ", updatedRegions.length)
-    updatedRegions.forEach((region, index) => {
-        const start = region.start;
-        const end = region.end;
-
-        // Check if existingTransitionValues is defined
-        console.log("current times:", index, start, end);
-    });
-
-    const chosenMismatchedRegions = mismatchedRegions.length > 0 ? mismatchedRegions : mismatchedRegionsOther;
-    const chosenMismatchedIndexes = chosenMismatchedRegions.map(mRegion => updatedRegions.indexOf(mRegion));
-
-
-
-    console.log("Mismatched region: ", mismatchedRegions);
-    console.log("OTHER DIR MISMATCH: ", mismatchedRegionsOther)
-    console.log("chosen mismatch: ", chosenMismatchedRegions, chosenMismatchedIndexes);
-
-    if (currentRegions.length > updatedRegions.length) {
-        const newRegionIndex = mismatchedRegions.length ? currentRegions.indexOf(mismatchedRegions[0]) : currentRegions.length - 1;
-        console.log("new index: ", newRegionIndex);
-        console.log(valuesDict);
-        return newRegionIndex
-    } else if (currentRegions.length < updatedRegions.length) {
-        console.log("REMOVE REGION: ", currentRegions)
-        console.log("REMOVE REGION ex val before: ", existingTransitionValues)
-        // Region removed; delete corresponding entry in `valuesDict`
-        const removedRegionIndex = chosenMismatchedRegions.map(mRegion => updatedRegions.indexOf(mRegion));
-        console.log("removed index: ", (-1) * removedRegionIndex[0])
-        // delete valuesDict[removedRegionIndex];
-        console.log("REMOVE REGION ex val after: ", existingTransitionValues)
-        return removedRegionIndex[0] * (-1) - 1
-
-    }
-
-    console.log("Updated valuesDict after region change:", valuesDict);
-}
-
-
-
-function detectBeats(data, sampleRate, threshold) {
-    const beats = [];
-    let minSamplesBetweenBeats = sampleRate / 2; // Minimum half-second between beats
-    let lastBeatIndex = -minSamplesBetweenBeats;
-
-    threshold = threshold / 100; // Convert threshold to match amplitude range of audio data
-
-    for (let i = 0; i < data.length; i++) {
-        if (Math.abs(data[i]) > threshold) {
-            if (i - lastBeatIndex > minSamplesBetweenBeats) {
-                // Store beat time and strength (absolute value of sample)
-                beats.push({ time: i / sampleRate, strength: Math.abs(data[i]) });
-                lastBeatIndex = i;
-            }
-        }
-    }
-    return beats;
-}
-
-
-function getMimeType(fileName) {
-    const extension = fileName.split('.').pop().toLowerCase();
-    switch (extension) {
-        case 'mp3':
-            return 'audio/mp3';
-        case 'wav':
-            return 'audio/wav';
-        default:
-            return 'audio/mpeg'; // Default to mp3
-    }
-}
-
-function displayBeats(data, beatContainer, audioPlayer, audioData, buffer, fileInput) {
-    const canvas = document.getElementById('waveformCanvas');
-    const durationInSeconds = buffer.duration;
-    canvas.width = durationInSeconds * 20; // 20 pixels per second
-    drawWaveform(data, canvas, durationInSeconds);
-
-    audioPlayer.hidden = false;
-}
-
-function drawWaveform(data, canvas, duration) {
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    ctx.clearRect(0, 0, width, height); // Clear previous drawings
-    ctx.beginPath();
-    ctx.moveTo(0, height / 2);
-    const step = Math.ceil(data.length / width);
-    for (let i = 0; i < width; i++) {
-        let min = 1.0;
-        let max = -1.0;
-        for (let j = 0; j < step; j++) {
-            const datum = data[(i * step) + j];
-            if (datum < min) min = datum;
-            if (datum > max) max = datum;
-        }
-        const yLow = ((min + 1) / 2) * height;
-        const yHigh = ((max + 1) / 2) * height;
-        ctx.lineTo(i, yLow);
-        ctx.lineTo(i, yHigh);
-    }
-    ctx.stroke();
-}
-
-
-function showSignificantPoints() {
-    newsigPoints = [...significantPoints]
-    document.querySelectorAll('.hidden-beat').forEach(beat => {
-        beat.style.display = 'block';
-    });
-    document.querySelectorAll('.beat').forEach(beat => {
-        if (!beat.classList.contains('hidden-beat')) {
-            beat.style.display = 'none';
-        }
-    });
-}
-
+// toggle 2D vs 3D motion button on and off
+// needs to update values within table if already populated
 function toggleMotion() {
     const button = document.getElementById("toggleMotionButton");
     if (button.textContent === "3D Motion") {
@@ -3158,13 +2658,9 @@ function toggleMotion() {
     }
 }
 
-function toggle_suggest() {
-    const suggestionsContent = document.getElementById('suggestionsContent');
-    suggestionsContent.classList.toggle('hidden');
-}
+//#------------------- LOAD/SAVE STATE + DOWNLOAD PROMPT -------------------
 
-// Functions to save and load JSON files
-
+// Get all data for intervals and transitions
 function getwaveformData(){
     let allRegions = Object.values(waveform.regions.list);
     let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
@@ -3182,12 +2678,14 @@ function getwaveformData(){
 
 }
 
+// helper function to gather interval and transition data (time + input details)
 function gettableData(){
     const formData = gatherFormData();
     const transitionsData = gatherTransitionData(formData);
     return {"form" : formData, "trans": transitionsData};
 }
 
+// Save state to JSON function
 function saveState() {
     // Gather data
     let waveData = getwaveformData();
@@ -3236,6 +2734,8 @@ function saveState() {
     URL.revokeObjectURL(url);
 }
 
+// function called upon pressing "load state" button
+// calls helper function loadState
 function promptAndLoadState() {
     // Create a file input element
     const fileInput = document.createElement('input');
@@ -3277,7 +2777,9 @@ function promptAndLoadState() {
     fileInput.click();
 }
 
+// Verify format to save progress as JSON
 function validateJsonState(jsonData) {
+    console.log("VALIDATE JSON STATE")
     // Ensure the JSON contains valid keys with expected structures
     const hasIntervalTimes = Array.isArray(jsonData.intervalTimes);
     const hasTransitionTimes = Array.isArray(jsonData.transitionTimes);
@@ -3294,22 +2796,10 @@ function validateJsonState(jsonData) {
         )
         : false;
 
+    console.log(validTransitions)
+
     return validIntervals || validTransitions; // At least one of them must be valid
 }
-
-function clearColorRegions(waveform, colorsToRemove) {
-    if (!waveform || !waveform.regions) return;
-
-    Object.keys(waveform.regions.list).forEach(regionId => {
-        const region = waveform.regions.list[regionId];
-
-        // Check if the region's color matches one of the colors to remove
-        if (colorsToRemove.includes(region.color)) {
-            region.remove(); // Remove the region
-        }
-    });
-}
-
 
 function loadState(jsonData) {
     const {motion_mode_tmp, intervalTimes, transitionTimes , formData, transitionData} = jsonData;
@@ -3382,18 +2872,12 @@ function initializeWaveform(intervalTimes, transitionTimes) {
 
 }
 
-function initializeImage(imageLink){
-    const imageView = document.getElementById('img-view');
-    if (imageLink){
-        imageView.style.backgroundImage = `url(${imageLink})`;  // Set background image
-        imageView.textContent = "";  // Clear any text content
-        imageView.style.border = 0;  // Remove any border (if needed)
-    }
-}
-
+//initialize main table. Need to show all intermediary buttons
+//and initialize previously input values
 function initializeTable(jsonData) {
     const { intervalTimes, transitionTimes , formData, transitionData, songname, vibeInput, colorInput, imageryInput, textureInput, imageLink} = jsonData;
-
+    console.log("init table")
+    console.log(jsonData)
     // refreshTable();
     show_transitions();
     show_default_boxes(vibeInput, colorInput, imageryInput, textureInput); 
@@ -3424,28 +2908,252 @@ function initializeTable(jsonData) {
             index++;
         }
     }
-s
+
     refreshTable("none", transitionData);
-    // refreshTable("trans");
 
 }
 
-
-async function checkQueue() {
-    const response = await fetch('/get_queue_length');
-    const data = await response.json();
-    alert(`There are ${data.queue_length} jobs in the queue.`);
-}
-
-function toggleHelpers() {
-    const helperButtons = document.getElementById('helperButtons');
-    const toggleButton = document.getElementById('toggleHelpers');
-    if (helperButtons.style.display === 'flex') {
-        helperButtons.style.display = 'none';
-        toggleButton.textContent = 'Helper Functions ▼';
-        
-    } else {
-        helperButtons.style.display = 'flex';
-        toggleButton.textContent = 'Helper Functions ▲';
+function initializeImage(imageLink){
+    const imageView = document.getElementById('img-view');
+    if (imageLink){
+        imageView.style.backgroundImage = `url(${imageLink[1]})`;  // Set background image
+        imageView.textContent = "";  // Clear any text content
+        imageView.style.border = 0;  // Remove any border (if needed)
     }
+}
+
+function show_transitions() {
+    const addButton = document.getElementById("add-transitions-button");
+    const deleteButton = document.getElementById("deleteTransitionButton");
+    const nextButton = document.getElementById("next-transition");
+    const defaultButton = document.getElementById("defaultTransitionButton");
+    const finalizeButton = document.getElementById("finalize-timestamps")
+
+    addButton.style.display = "block";
+    deleteButton.style.display = "block";
+    defaultButton.style.display = "block";
+    finalizeButton.style.display = "block";
+    nextButton.style.display = "none";
+}
+
+function show_default_boxes(vibeInputVal = "", colorInputVal = "", imageryInputVal = "", textureInputVal = "") {
+    //show items in input details and image gallery
+    const finalizeButton = document.getElementById("finalize-timestamps");
+    const detailsBox = document.getElementById("detailsBox")
+    const vibeBox = document.getElementById("vibeBox")
+    const colorBox = document.getElementById("colorBox")
+    const imageryBox = document.getElementById("imageryBox")
+    const textureBox = document.getElementById("textureBox")
+    const vibeInput = document.getElementById("vibeInput");
+    const colorInput = document.getElementById("colorInput");
+    const imageryInput = document.getElementById("imageryInput");
+    const textureInput = document.getElementById("textureInput");
+    const image_examples = document.getElementById("image_examples")
+    const detail_gallery_toggle = document.getElementById("dropdownToggle")
+    // console.log("IN SHOW DEFAULT BOXES: ", vibeInputVal, colorInputVal, imageryInputVal, textureInputVal)
+
+
+    const fillDefaultsButton = document.getElementById("fill-defaults")
+    const trash = document.getElementById("trash")
+    const toggleButton = document.getElementById("toggleMotionButton")
+    finalizeTimestamps('time', -1, -1)
+
+    // trash.style.display = "flex";
+    detailsBox.style.display = "block";
+    vibeBox.style.display = "block";
+    colorBox.style.display = "block";
+    imageryBox.style.display = "block";
+    textureBox.style.display = "block";
+    detail_gallery_toggle.style.display = "block";
+    fillDefaultsButton.style.display = "block";
+    toggleButton.style.display = "block";
+
+
+    image_examples.style.display = "block"
+    finalizeButton.style.display = "none";
+
+
+    //Set up Input Details
+
+    colorBox.style.justifyContent = "center";
+    colorBox.style.alignContent = "center";
+
+    // Show color picker when button is clicked
+    colorPickerButton.addEventListener("click", function () {
+        // console.log("hello color click")
+        updateColorPickerFromInput();  // Update color picker to match the current color input
+        colorPicker.click();           // Trigger the color picker
+    });
+
+    // When a color is chosen from the color picker, update the color input with the selected hex code
+    colorPicker.addEventListener("input", function (event) {
+        colorInput.value = event.target.value;
+        colorPickerButton.style.backgroundColor = event.target.value;
+    });
+
+    // Update color picker whenever color input changes
+    colorInput.addEventListener("input", updateColorPickerFromInput);
+    // console.log("DEFAULT BOX INPUT: ", vibeInput, colorInput, imageryInput,)
+    vibeInput.value = vibeInputVal;
+    colorInput.value = colorInputVal;
+    imageryInput.value = imageryInputVal;
+    textureInput.value = textureInputVal;
+
+    // Add default transition options
+    let allRegions = Object.values(waveform.regions.list);
+    let orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
+
+    if (orangeRegions.length === 0 && tablemade == false) {
+        const useDefault = window.confirm('No transition regions found. Would you like to add some default transitions?');
+        if (useDefault) {
+            addDefaultTransitions();
+            allRegions = Object.values(waveform.regions.list);
+            orangeRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)');
+
+        } else {
+            console.log('Proceeding without transitions.');
+        }
+        let greenRegions = allRegions.filter(region => region.color === 'green').sort((a, b) => a.start - b.start);
+        let orangetempRegions = allRegions.filter(region => region.color === 'rgba(255, 165, 0, 0.5)').sort((a, b) => a.start - b.start);
+        updatedGreenRegions = greenRegions;
+        if (orangeRegions.length > 0) {
+            updatedOrangeRegions = orangetempRegions;
+        }
+
+        // console.log("ADDED TO UPDATED:",updatedGreenRegions.length,updatedOrangeRegions.length)
+
+    }
+}
+
+// Fill table with defaults if preset vals are present in load state file
+function fillDefaultsTemp(load = false) {
+    const vibeInput = document.getElementById("vibeInput");
+    const colorInput = document.getElementById("colorInput");
+    const imageryInput = document.getElementById("imageryInput");
+    const textureInput = document.getElementById("textureInput");
+    const trash = document.getElementById("trash");
+    const processButton = document.getElementById("process-table")
+    const saveState = document.getElementById("saveState")
+    const checkQueue = document.getElementById("checkQueue")
+    const downloadPrompt = document.getElementById("downloadPrompt")
+    const toggle_helper = document.getElementById("toggle_helper")
+    const seed = document.getElementById("seed")
+
+
+    // Check if any of the inputs are empty
+    if (!vibeInput.value || !colorInput.value || !imageryInput.value || !textureInput.value) {
+        const proceed = window.confirm(
+            "Some fields are empty: Vibe, Color, Imagery, or Texture. Do you want to proceed anyway?"
+        );
+        if (!proceed) {
+            return; // Stop execution if the user chooses not to proceed
+        }
+    }
+
+    // Show the toggle button and proceed with fillDefaults
+    const toggleButton = document.getElementById("toggleMotionButton");
+    toggleButton.style.display = "block";
+    trash.style.display = "flex";
+    if(load == true){
+        console.log("DON'T FILL DEFAULTS");
+    }else{
+        console.log("FILL DEFAULTS")
+        fillDefaults();
+    }
+    
+    processButton.style.display = "block";
+    seed.style.display = "inline-block";
+    saveState.style.display = "block";
+    downloadPrompt.style.display = "block";
+    checkQueue.style.display = "block";
+    // toggle_helper.style.display = "inline-block";
+    toggle_helper.style.visibility = 'visible';
+    toggle_helper.style.opacity = '1';
+
+}
+
+// Function to update the color picker based on hex code in the color input
+function updateColorPickerFromInput() {
+    const hexColorPattern = /#([0-9A-Fa-f]{6})\b/;
+
+    const colorInput = document.getElementById("colorInput");
+    const colorPicker = document.getElementById("colorPicker");
+    const colorPickerButton = document.getElementById("colorPickerButton");
+    const inputText = colorInput.value;
+    const hexMatch = inputText.match(hexColorPattern);
+
+    if (hexMatch) {
+        // If a hex color code is found, update the color picker and button background
+        colorPicker.value = hexMatch[0];
+        colorPickerButton.style.backgroundColor = hexMatch[0];
+    } else {
+        // If no hex code is found, default to white or no color
+        colorPicker.value = "#FFFFFF";
+        colorPickerButton.style.backgroundColor = "white";
+    }
+}
+
+
+// Code to download prompt for use within Replicate
+// https://replicate.com/deforum-art/deforum-stable-diffusion?input=json
+function downloadPrompt() {
+    const formData = gatherFormData();
+    const transitionsData = gatherTransitionData(formData);
+    let seed = document.getElementById("seed").value;
+
+    seed = parseInt(seed, 10);
+    if (isNaN(seed)) {
+        seed = 868591112; // Default value
+    }
+    let backgroundImageUrl = $('#img-view').css('background-image');
+
+    // Extract the URL (removes the `url("...")` part)
+    backgroundImageUrl = backgroundImageUrl.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+
+    // console.log("image url: ", backgroundImageUrl);
+
+    const data = {
+        timestamps_scenes: significantPoints.map(point => point.toFixed(2)),
+        form_data: formData,
+        transitions_data: transitionsData,
+        song_len: audioDuration,
+        motion_mode: motion_mode,
+        seed: seed,
+        input_image_url: backgroundImageUrl
+    };
+
+    console.log("Sending data for prompt generation");
+
+    // Fetch the prompt from the backend
+    fetch('/download_prompt', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+        .then(response => response.json())
+        .then(responseData => {
+            console.log("Prompt received:", responseData.prompt);
+
+            // Convert state to JSON and save it as a file
+            const blob = new Blob([JSON.stringify(responseData.prompt, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            // Create a temporary download link
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'prompt.json';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Clean up the object URL
+            URL.revokeObjectURL(url);
+
+            console.log("Prompt saved as JSON file.");
+        })
+        .catch(error => {
+            console.error('Error fetching prompt:', error);
+        });
 }

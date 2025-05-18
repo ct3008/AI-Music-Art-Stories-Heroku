@@ -1,6 +1,8 @@
+# Main code for running tasks (generate image + video)
 import time  # Simulating long tasks
 import datetime
 from redis import Redis
+import cloudinary
 import cloudinary.uploader
 import json
 from queue_config import queue, redis_conn
@@ -13,7 +15,7 @@ import librosa
 import numpy as np
 from time import sleep
 import requests
-from helpers import (  # Adjust the import paths as needed
+from helpers import ( #helper functions
     parse_input_data,
     calculate_frames,
     build_transition_strings,
@@ -21,80 +23,8 @@ from helpers import (  # Adjust the import paths as needed
     create_deforum_prompt
 )
 
-    
-def process_audio(file_path):
-    job = get_current_job()  # Get the current job
-    print("file path process: ", file_path)
-    # Load the audio file using librosa
-    y, sr = librosa.load(file_path, sr=None)
-    print("Y LIST AND SR tasks: ", type(y), len(y), sr)
-    
-
-    # Calculate RMS energy
-    rms = librosa.feature.rms(y=y)[0]
-
-    # Smooth RMS energy to remove minor fluctuations
-    smoothed_rms = np.convolve(rms, np.ones(10)/10, mode='same')
-
-    # Perform onset detection with adjusted parameters
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    smoothed_onset_env = np.convolve(onset_env, np.ones(5)/5, mode='same')
-    onset_frames = librosa.onset.onset_detect(onset_envelope=smoothed_onset_env, sr=sr, hop_length=512, backtrack=True)
-
-    onset_times = librosa.frames_to_time(onset_frames, sr=sr)
-
-    # Perform beat detection
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-    beat_times2 = librosa.frames_to_time(beat_frames, sr=sr)
-    beat_times = [{'time': beat} for beat in beat_times2]
-
-    onset_strengths = [onset_env[int(frame)] for frame in onset_frames if int(frame) < len(onset_env)]
-    onset_strength_pairs = list(zip(onset_times, onset_strengths))
-
-    # Sort by strength, largest to smallest
-    sorted_onsets = sorted(onset_strength_pairs, key=lambda x: x[1], reverse=True)
-    top_onset_times = sorted_onsets  # Keep both time and strength pairs
-
-    # Align onsets with closest beats while keeping strength information
-    aligned_onsets = [
-        {
-            'time': min(beat_times2, key=lambda x: abs(x - time)),
-            'strength': float(strength),  # Convert to float
-        }
-        for time, strength in top_onset_times
-    ]
-
-    # Find low-energy periods
-    threshold = np.percentile(smoothed_rms, 10)
-    low_energy_before_onset = []
-    for i in range(1, len(onset_frames)):
-        start = onset_frames[i-1]
-        end = onset_frames[i]
-
-        # Ensure the segment is valid and non-empty
-        if start < end and end <= len(smoothed_rms):
-            rms_segment = smoothed_rms[start:end]
-            if len(rms_segment) > 0:  # Ensure the segment is non-empty
-                min_rms = np.min(rms_segment)
-                if min_rms < threshold:
-                    low_energy_before_onset.append({
-                        'time': float(librosa.frames_to_time(start, sr=sr)),  # Convert to float
-                        'strength': float(min_rms)  # Convert to float
-                    })
-
-    duration = librosa.get_duration(y=y, sr=sr)
-
-    response = {
-        "low_energy_timestamps": low_energy_before_onset,
-        "top_onset_times": beat_times,
-        "aligned_onsets": aligned_onsets, 
-        "duration": float(duration)
-    }
-
-    # Return the result (or save to DB, etc.)
-    return response
-
-
+#------------------- Upload/Generate Image -------------------
+# Main task being called to generate images
 def generate_image_task(data):
     global init_image
     job = get_current_job
@@ -102,7 +32,7 @@ def generate_image_task(data):
     try:
         prompt = data.get('prompt', '')
         api_key = data.get('api_key', '')
-        print(f"USED API KEY GEN: {api_key}")
+        # print(f"USED API KEY GEN: {api_key}")
         api = replicate.Client(api_token=api_key)
 
         if not prompt:
@@ -162,7 +92,6 @@ def generate_image_task(data):
         if output and isinstance(output, list):
             image_url = str(output[0])
             init_image = image_url
-            print('init_image new: ', init_image)
             cloudinary_response = cloudinary.uploader.upload(image_url)
             cloudinary_image_url = cloudinary_response.get('secure_url')
 
@@ -175,7 +104,6 @@ def generate_image_task(data):
             print("saving under timestamp: ", timestamp, public_id)
 
             print('Image uploaded to Cloudinary:', cloudinary_image_url, public_id)
-            # return {'status': "success", 'output': image_url}  # Return the result data instead of jsonify
             return {'status': "success", 'output': cloudinary_image_url}
 
         return {"status": "error", 'error': 'Unexpected output format'}  # Return error message as dict
@@ -187,19 +115,6 @@ def generate_image_task(data):
         # Log the actual error and return it as a dictionary
         print(f"Error: {str(e)}")
         return {"status": "error", 'error': str(e)}  # Return error data
-
-
-def download_video_from_url(video_url, save_path="./downloaded_videos/replicate_video.mp4"):
-    response = requests.get(video_url, stream=True)
-    if response.status_code == 200:
-        with open(save_path, 'wb') as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
-        print(f"Video downloaded successfully to {save_path}")
-    else:
-        raise Exception(f"Failed to download video. Status code: {response.status_code}")
-    return save_path
-
 
 
 def long_running_task(data):
@@ -232,13 +147,10 @@ def long_running_task(data):
         prompts = generate_image_prompts(form_data, final_anim_frames)
 
         # Create the Deforum prompt
-        print("INIT IMAGE TO BE PASSED IN: ", input_image_url)
         if not input_image_url or str(input_image_url).lower() == "none":
             print("No valid input image URL specified. Using default.")
             input_image_url = "https://raw.githubusercontent.com/ct3008/ct3008.github.io/main/images/isee1.jpeg"
-        print("INIT IMAGE THAT IS PASSED IN: ", input_image_url)
         deforum_prompt = create_deforum_prompt(motion_strings, final_anim_frames, motion_mode, prompts, seed, input_image_url)
-        print("deforum prompt: ", deforum_prompt)
         
         # Run the API
         output = api.run(
@@ -298,6 +210,7 @@ def long_running_task(data):
         # Log or handle the timeout exception here
         return {"status": "error", "error": "Task exceeded maximum timeout value"}
     except Exception as e:
+        # because we continue calling
         # Log the error and store the error message in the job metadata
         current_job = get_current_job()
         if current_job:
@@ -308,6 +221,20 @@ def long_running_task(data):
     # Perform task
     return {"result": "Task completed"}
 
+#------------------- Download and Adjust Video -------------------
+
+def download_video_from_url(video_url, save_path="./downloaded_videos/replicate_video.mp4"):
+    response = requests.get(video_url, stream=True)
+    if response.status_code == 200:
+        with open(save_path, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=8192):
+                file.write(chunk)
+        print(f"Video downloaded successfully to {save_path}")
+    else:
+        raise Exception(f"Failed to download video. Status code: {response.status_code}")
+    return save_path
+
+#------------------- Helpers -------------------
 def download_prompt(data):
     print("run download_prompt")
 
@@ -331,11 +258,9 @@ def download_prompt(data):
     prompts = generate_image_prompts(form_data, final_anim_frames)
 
     # Create the Deforum prompt
-    print("INIT IMAGE TO BE PASSED IN: ", input_image_url)
     if not input_image_url or str(input_image_url).lower() == "none":
         print("No valid input image URL specified. Using default.")
         input_image_url = "https://raw.githubusercontent.com/ct3008/ct3008.github.io/main/images/isee1.jpeg"
-    print("INIT IMAGE THAT IS PASSED IN: ", input_image_url)
     deforum_prompt = create_deforum_prompt(motion_strings, final_anim_frames, motion_mode, prompts, seed, input_image_url)
     print("deforum prompt: ", deforum_prompt)
     return deforum_prompt
